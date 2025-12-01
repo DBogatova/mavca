@@ -1,6 +1,5 @@
-# 🧠 Apical Dendrite ΔF/F Analysis Pipeline
-
-This repository contains a modular analysis pipeline for extracting and visualizing dendritic calcium activity from 4D imaging data. It supports frame selection, dendrite segmentation, functional branch clustering, ΔF/F computation, and high-quality visualization.
+# 🧠 MAVCA -- Mask-Assisted Volumetric Calcium Analysis 
+This repository contains a modular analysis pipeline for extracting and visualizing dendritic calcium activity from 4D imaging data. It supports frame selection, dendrite segmentation, functional branch clustering, ΔF/F computation, and Napari visualization.
 
 ---
 
@@ -10,130 +9,228 @@ Data is organized by date, mouse, and run in the following structure:
 
 ```
 data/
-└── 2025-04-22/
-    └── rAi162_15/
-        └── run6/
-            ├── raw/                    # Raw TIFFs from microscope
-            │   ├── runA_run6_rAi162_15_processed_very_good.tif
-            │   └── runA_run6_rAi162_15_reslice_bin.tif
-            ├── events/                 # Selected mini-stacks (Module 1 output)
-            ├── labelmaps/              # Dendrite masks (Module 2 output)
-            ├── branches/               # Branch label volumes (Module 3 output)
-            ├── traces/                 # ΔF/F trace data (.pkl)
-            ├── overlays/               # ΔF/F volume with all branches
-            └── trace_with_branchmap/   # Composite plots (Module 4 output)
+└── 2025-08-06/
+    └── organoid/
+        └── run4-crop/
+            ├── raw/                           # Raw TIFFs from microscope
+            │   ├── runB_run4_reslice-crop.tif                    # 4D raw stack (T,Z,Y,X)
+            │   └── runB_run4_reslice-crop_processed.tif          # 3D MIP for motion detection
+            ├── preprocessed/                  # Motion-corrected data (STEP 1 output)
+            │   ├── raw_clean.tif             # Motion-filtered 4D stack
+            │   ├── dff_stack.tif             # ΔF/F stack from Module 1
+            │   ├── event_crops/              # Selected mini-stacks
+            │   ├── excluded_frames.npy       # Motion frame indices
+            │   └── frame_mapping.npy         # Original→clean frame mapping
+            ├── labelmaps/                     # Initial dendrite masks (STEP 2 output)
+            ├── labelmaps_curated_dynamic/     # Curated masks (STEP 2 output)
+            ├── traces/                        # ΔF/F trace data (STEP 3 output)
+            │   ├── dff_traces_curated_bgsub.csv
+            │   └── dff_traces_curated_bgsub_smooth.csv
+            ├── trace_previews_curated/        # Individual trace plots
+            ├── trace_previews_curated_smooth/ # Smoothed trace plots
+            └── overlays_curated/              # Mask overlays on background
 ```
 
 ---
 
-## 🧩 Modular Pipeline Overview
+## 🧩 Pipeline Overview
 
-| Module       | Script                         | Purpose                                                                                                                      |
-| ------------ | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| **Module 1** | `get_events_m1.py`     | Compute ΔF/F from 3D MIP, identify active frames interactively or manually, and extract event mini-stacks from raw 4D stack. |
-| **Module 2** | `auto_mask_m2.py`   | Compute ΔF/F on mini-stacks, segment dendrites, cluster into branches using KMeans, and save labeled masks.                  |
-| **Module 3** | `3d_mask_overlay_m3.py` | Overlay masks onto full raw 4D stack, compute ΔF/F per branch, generate 4D ΔF/F overlays and extract traces.                 |
-| **Module 4** | `save_traces_m4.py`       | Create composite figures: 2D color-coded branch MIP + aligned ΔF/F traces for each dendrite.                                 |
-| **Module 5** | `create_3d_movie_m5.py`    | Visualize full 4D ΔF/F stack in 3D with Napari using voxel scale, background filtering, and cube outline.                    |
+### STEP 1: Preprocessing & Event Detection
+| Script | Purpose |
+|--------|---------|
+| `remove_motion_frames_simple.py` | Detect and remove motion artifacts from raw 4D stack |
+| `find_events_m1.py` | Compute ΔF/F, detect calcium events, extract mini-stacks |
 
-All modules are configured using:
+### STEP 2: Mask Creation & Curation
+| Script | Purpose |
+|--------|---------|
+| `auto_mask_m2.py` | Segment dendrites from event crops using thresholding + clustering |
+| `filter_selected_masks_m3.py` | Interactive curation of masks in Napari with neighbor editing |
 
-```python
-DATE = "YYYY-MM-DD"
-MOUSE = "mouse_id"
-RUN = "runN"
-```
+### STEP 3: Trace Extraction & Analysis
+| Script | Purpose |
+|--------|---------|
+| `save_traces_m4.py` | Extract ΔF/F traces from curated masks with background subtraction |
+| `downsample_traces.py` | Apply smoothing and/or decimation to traces |
+| `plot_selected_traces.py` | Generate publication-quality stacked trace plots |
 
-These variables control all file paths and outputs, making the scripts reusable for any new imaging run.
+### Visualization & Quality Control
+| Script | Purpose |
+|--------|---------|
+| `organoid_outline.py` | Create mask overlays on background MIPs (XY/XZ/YZ views) |
+| `remove_trace_artifacts.py` | Remove frames with trace-based motion artifacts |
 
 ---
 
 ## ⚙️ How to Run the Pipeline
 
-1. Place your raw data in the folder:
-
-   ```
-   data/YYYY-MM-DD/MOUSE_ID/RUN_ID/raw/
-   ```
-
-   with filenames:
-
-   * `runA_<run>_<mouse>_processed_very_good.tif` (3D MIP)
-   * `runA_<run>_<mouse>_reslice_bin.tif` (4D raw stack)
-
-2. Run each module in order:
-
-   ```bash
-   python code/module1_select_frames.py
-   python code/module2_label_dendrites.py
-   python code/module3_overlay_and_split.py
-   python code/module4_plot_traces.py
-   python code/module5_view_dff_clean.py
-   ```
-
-3. Review outputs in:
-
-   * `events/`: selected high-activity timepoints
-   * `labelmaps/`: segmented dendrites
-   * `branches/`: functionally distinct subregions
-   * `traces/`: extracted time series
-   * `trace_with_branchmap/`: final figures
-   * `overlays/`: ΔF/F branch visualization
-
----
-
-## 📦 Environment Setup (Recommended)
-
-Use a virtual environment to avoid dependency issues:
-
+### 1. Setup Environment
 ```bash
-cd path/to/apical-dendrites-2025
-python3 -m venv .venv
-source .venv/bin/activate
+cd apical-dendrites-2025
+python3 -m venv .venv311
+source .venv311/bin/activate
 pip install -r requirements.txt
 ```
 
-To create `requirements.txt` after installing all packages:
+### 2. Prepare Data
+Place your raw data in:
+```
+data/YYYY-MM-DD/MOUSE_ID/RUN_ID/raw/
+```
+with filenames:
+- `runB_run4_reslice-crop.tif` (4D raw stack)
+- `runB_run4_reslice-crop_processed.tif` (3D MIP for motion detection)
 
+### 3. Run Pipeline
+
+**STEP 1: Motion Correction & Event Detection**
 ```bash
-pip freeze > requirements.txt
+# Remove motion artifacts
+python code/Extra/remove_motion_frames_simple.py
+
+# Detect calcium events and create mini-stacks
+python code/Preprocessing-STEP1/find_events_m1.py
 ```
 
-Reactivate your environment any time with:
-
+**STEP 2: Mask Creation & Curation**
 ```bash
-source .venv/bin/activate
+# Auto-segment dendrites from events
+python code/Masks-STEP2/auto_mask_m2.py
+
+# Interactively curate masks in Napari
+python code/Masks-STEP2/filter_selected_masks_m3.py
 ```
+
+**STEP 3: Trace Extraction & Analysis**
+```bash
+# Extract ΔF/F traces from curated masks
+python code/Traces-STEP3/save_traces_m4.py
+
+# Apply smoothing (optional)
+python code/Traces-STEP3/downsample_traces.py
+
+# Generate publication plots
+python code/Traces-STEP3/plot_selected_traces.py
+```
+
+**Visualization**
+```bash
+# Create mask overlays
+python code/organoid_outline.py --select dend_001,dend_016,dend_018 --combined
+```
+
+---
+
+## 🔧 Configuration
+
+All scripts use consistent configuration variables:
+```python
+DATE = "2025-08-06"
+MOUSE = "organoid" 
+RUN = "run4-crop"
+```
+
+Key parameters can be adjusted in each script:
+- **Motion detection**: `K_MAD`, `TILES_YX`, `PAD_NEIGHBOR`
+- **Event detection**: `Z_HI`, `Z_LO`, `TOP_FRAC`
+- **Mask segmentation**: `INTENSITY_PERCENTILE`, `MIN_VOL`, `MAX_VOL`
+- **Trace processing**: `SMOOTH_SIGMA`, `ARTIFACT_Z`
 
 ---
 
 ## 📦 Dependencies
 
-To install manually if not using `requirements.txt`:
-
+Core packages:
 ```bash
-pip install numpy scipy scikit-learn scikit-image tifffile matplotlib napari tqdm
+pip install numpy scipy scikit-learn scikit-image tifffile matplotlib napari tqdm pandas
 pip install "napari[pyqt5]"
+```
+
+Or install from requirements:
+```bash
+pip install -r requirements.txt
 ```
 
 ---
 
-## ✅ Example Output
+## ✅ Expected Outputs
 
-Each dendrite results in a figure combining:
+### Traces
+- **CSV files**: `dff_traces_curated_bgsub.csv` with columns for each dendrite
+- **Individual plots**: Per-dendrite trace previews with MIP overlays
+- **Stacked plots**: Publication-ready multi-trace figures with color coding
 
-* A **color-coded 2D MIP** showing functional branches
-* **ΔF/F activity traces** for each branch, vertically offset for clarity
-* An interactive 3D viewer to explore time and space dynamics
+### Masks
+- **3D labelmaps**: `dend_XXX_labelmap.tif` files for each curated dendrite
+- **Overlays**: Triplanar views (XY/XZ/YZ) with mask outlines on background
+
+### Quality Control
+- **Motion timeline**: Frame-by-frame motion scores and exclusions
+- **Event timeline**: Activity detection and z-scores over time
+- **Curation log**: Record of kept/deleted masks during interactive curation
+
+---
+
+## 🧼 Motion Correction
+
+The pipeline includes robust motion artifact removal:
+
+1. **Correlation-based detection**: Tile-wise frame-to-frame correlation analysis
+2. **Adaptive thresholds**: Rolling median + MAD for local threshold adaptation  
+3. **Physical removal**: Motion frames are completely removed (not set to NaN)
+4. **Frame mapping**: Original→clean frame indices preserved for reference
+
+Motion parameters can be tuned for sensitivity:
+- `K_MAD = 2.5`: Lower = more sensitive (remove more frames)
+- `TILES_YX = (4,4)`: More tiles = better local motion detection
+- `PAD_NEIGHBOR = 2`: Remove neighboring frames around detected motion
 
 ---
 
-## 🧼 Cleanup Notes
+## 🎯 Interactive Curation (Napari)
 
-To identify and delete unused files, use:
+The mask curation interface (`filter_selected_masks_m3.py`) provides:
 
-* `dry_run_reorganize.py` to preview file moves
-* `reorganize_run6.py` to move files into correct structure
-* `delete_files.py` to remove obsolete test data
+**Navigation**: Left/Right arrows, `b` (toggle background)
+**Editing**: Paint tool + `m` (merge), `x` (subtract)  
+**Neighbors**: `u`/`j` (adjust count), `q`/`w`/`r` (merge neighbors)
+**Actions**: `d` (delete), `k` (keep), `Ctrl+S` (save all)
+
+Masks are shown with nearest neighbors for context, enabling precise manual editing of segmentation boundaries.
 
 ---
+
+## 📊 Trace Analysis Features
+
+- **Background subtraction**: Core-shell approach with 3D morphological operations
+- **Artifact correction**: Negative spike removal and smoothing
+- **Multiple output formats**: Raw traces, smoothed, decimated
+- **Publication plots**: Color-coded stacked traces with scale bars
+- **Flexible selection**: Choose specific dendrites for analysis
+
+---
+
+## 🔍 Troubleshooting
+
+**Common Issues:**
+
+1. **"All scores are NaN"**: Check tissue mask creation, may need to lower detection thresholds
+2. **Motion still visible**: Decrease `K_MAD` or increase `TILES_YX` for more sensitive detection  
+3. **Too many frames removed**: Increase `K_MAD` or check MIP quality
+4. **Mask misalignment**: Ensure consistent Y-cropping across modules
+5. **Empty event crops**: Check event detection parameters (`Z_HI`, `Z_LO`)
+
+**Debug Mode**: Most scripts include debug output showing frame counts, detection statistics, and processing steps.
+
+---
+
+## 📝 Citation
+
+If you use this pipeline, please cite:
+[Your publication details here]
+
+---
+
+## 🤝 Contributing
+
+This pipeline is designed for calcium imaging analysis of apical dendrites. For questions or contributions, please contact [your contact info].

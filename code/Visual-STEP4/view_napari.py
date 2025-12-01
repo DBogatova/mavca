@@ -6,6 +6,8 @@ Quick Napari viewer for 4D ΔF/F data with FOV box edges and scale bar (µm)
 import napari
 import tifffile
 import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.cm as cm
 from pathlib import Path
 
 # ---- Config ----
@@ -19,14 +21,50 @@ stack = tifffile.imread(STACK_PATH)
 print(f"Stack shape: {stack.shape}")  # (T, Z, Y, X)
 _, Z, Y, X = stack.shape
 
+# Print ΔF/F value range for colorbar reference
+min_val = np.nanmin(stack)
+max_val = np.nanmax(stack)
+p5 = np.nanpercentile(stack, 5)
+p95 = np.nanpercentile(stack, 95)
+print(f"ΔF/F range: {min_val:.3f} to {max_val:.3f}")
+print(f"ΔF/F 5-95%: {p5:.3f} to {p95:.3f}")
+
+# Ensure valid contrast range
+if p95 <= p5:
+    contrast_min, contrast_max = min_val, max_val
+else:
+    contrast_min, contrast_max = p5, p95
+
+# ---- Create separate colorbar figure ----
+# Set CMU Serif font
+plt.rcParams['font.family'] = 'CMU Serif'
+plt.rcParams['font.serif'] = ['CMU Serif']
+
+fig, ax = plt.subplots(figsize=(2, 6))
+cmap = cm.get_cmap('turbo')
+norm = plt.Normalize(vmin=contrast_min, vmax=contrast_max)
+cb = plt.colorbar(cm.ScalarMappable(norm=norm, cmap=cmap), ax=ax)
+cb.set_label('ΔF/F (% change)', rotation=270, labelpad=20)
+ax.remove()  # Remove the axes, keep only colorbar
+plt.tight_layout()
+
+# Save as vector formats
+colorbar_path = Path(STACK_PATH).parent / "colorbar_dff"
+fig.savefig(f"{colorbar_path}.svg", format='svg', bbox_inches='tight')
+fig.savefig(f"{colorbar_path}.pdf", format='pdf', bbox_inches='tight')
+print(f"Saved colorbar: {colorbar_path}.svg and {colorbar_path}.pdf")
+
+plt.show()
+
 # ---- Napari viewer ----
 viewer = napari.Viewer(ndisplay=3)
-viewer.add_image(
+layer = viewer.add_image(
     stack,
     name="ΔF/F Branches",
     scale=VOXEL_SCALE,
     colormap="turbo",
     rendering="attenuated_mip",
+    contrast_limits=(contrast_min, contrast_max),
 )
 
 # ---- 3D Field of View edges ----
@@ -69,5 +107,13 @@ viewer.scale_bar.color = "white"
 viewer.scale_bar.ticks = True  # show tick marks
 viewer.scale_bar.font_size = 10
 
+
+print(f"\nColorbar range: {contrast_min:.1%} to {contrast_max:.1%} fluorescence change")
+print("\nΔF/F meaning:")
+print(f"  0.0 = no change (baseline)")
+print(f"  0.1 = 10% increase (moderate calcium)")
+print(f"  0.5 = 50% increase (strong calcium)")
+print(f"  1.0 = 100% increase (very strong calcium)")
+print(f" -0.1 = 10% decrease (below baseline)")
 
 napari.run()

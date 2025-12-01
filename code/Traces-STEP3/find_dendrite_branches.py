@@ -203,6 +203,10 @@ def main():
             import matplotlib.cm as cm
             from skimage.measure import find_contours
             
+            # Set CMU Serif font
+            plt.rcParams['font.family'] = 'CMU Serif'
+            plt.rcParams['font.serif'] = ['CMU Serif']
+            
             # Get merged trace data
             merged_trace = None
             if TRACE_FILE.exists():
@@ -266,8 +270,15 @@ def main():
                     ax2.legend(fontsize=8)
             
             fig.tight_layout()
+            
+            # Save PNG version
             preview_path = OUTPUT_FOLDER / f"{dendrite_name}_preview.png"
             fig.savefig(preview_path, dpi=150, bbox_inches="tight")
+            
+            # Save SVG vector version
+            svg_path = OUTPUT_FOLDER / f"{dendrite_name}_preview.svg"
+            fig.savefig(svg_path, format='svg', bbox_inches="tight", dpi=300)
+            
             plt.close(fig)
             
             # Create merged trace if traces available

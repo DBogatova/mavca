@@ -30,9 +30,9 @@ from skimage.measure import find_contours
 mpl.rcParams['font.family'] = 'Arial'
 
 # ===================== CONFIG =====================
-DATE  = "2025-08-06"
-MOUSE = "organoid"
-RUN   = "run4-crop"
+DATE  = "2025-10-29"
+MOUSE = "rAi162_15"
+RUN   = "run1-crop"
 
 VOXEL_SIZE = (4.7, 1.0, 1.2)   # (dz, dy, dx) µm
 PROJ_METHOD = "max"            # default; can override with --method
@@ -50,7 +50,9 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # ===================== MASK SELECTION (default list) =====================
 SELECTED_MASKS = [
-    "dend_001","dend_003","dend_008", "dend_012", "dend_014", "dend_015", "dend_016", "dend_019"
+    "dend_000","dend_002","dend_003", "dend_004", "dend_006", "dend_007", "dend_008", "dend_014",
+    "dend_018","dend_020","dend_021", "dend_022", "dend_023", "dend_025", "dend_029", "dend_033",
+    "dend_035","dend_037","dend_040", "dend_041"
 ]
 
 # ===================== ARGS =====================

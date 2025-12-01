@@ -29,9 +29,10 @@ import pandas as pd
 import gc
 
 # --------- Matplotlib fixes (minus sign etc.) ----------
-#mpl.rcParams['font.family'] = 'CMU Serif'
-#mpl.rcParams['axes.unicode_minus'] = False
-#mpl.rcParams['mathtext.default'] = 'regular'
+mpl.rcParams['font.family'] = 'CMU Serif'
+mpl.rcParams['font.serif'] = ['CMU Serif']
+mpl.rcParams['axes.unicode_minus'] = False
+mpl.rcParams['mathtext.default'] = 'regular'
 
 # ========= CONFIG =========
 DATE = "2025-08-27"
@@ -250,10 +251,12 @@ def main():
         axes[1].set_xlabel("Time (s)")
         axes[1].set_ylabel("ACh ΔF/F (%)")
         axes[1].grid(alpha=0.3)
-        axes[1].legend(loc="upper right", fontsize=8, frameon=False)
+        axes[1].legend(loc="lower right", fontsize=8, frameon=False)
 
         fig.tight_layout()
+        # Save PDF and SVG versions
         fig.savefig(FIG_DIR / f"{name}_CaBG_AChNeighborhood.pdf", format="pdf")
+        fig.savefig(FIG_DIR / f"{name}_CaBG_AChNeighborhood.svg", format="svg", bbox_inches='tight')
         plt.close(fig)
 
         # Wide CSV columns

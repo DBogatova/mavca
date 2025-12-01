@@ -45,6 +45,10 @@ EPS = 1e-12
 USE_SPIKE_DETECTION = True
 SPIKE_THRESHOLD = -2.0   # Detect sudden drops (negative spikes)
 
+# Line artifact detection
+USE_LINE_DETECTION = True
+LINE_THRESHOLD = 2.5     # Standard deviations for line detection
+
 def load_mip_movie(path):
     with tifffile.TiffFile(path) as tif:
         arr = tif.series[0].asarray().astype(np.float32)
@@ -74,6 +78,35 @@ def rolling_mad(x, w):
         med = np.nanmedian(seg)
         out[i] = np.nanmedian(np.abs(seg - med))
     return out
+
+def detect_line_artifacts(mip, threshold=2.5):
+    """Detect frames with horizontal line artifacts"""
+    T, H, W = mip.shape
+    line_frames = []
+    
+    for t in range(T):
+        frame = mip[t]
+        if not np.isfinite(frame).any():
+            continue
+            
+        # Check for horizontal lines by row variance analysis
+        row_vars = np.nanvar(frame, axis=1)
+        valid_vars = row_vars[np.isfinite(row_vars)]
+        
+        if len(valid_vars) == 0:
+            continue
+            
+        var_median = np.median(valid_vars)
+        var_mad = np.median(np.abs(valid_vars - var_median))
+        
+        # Count rows with extreme variance (line artifacts)
+        extreme_rows = np.sum(np.abs(row_vars - var_median) > threshold * var_mad)
+        
+        # Flag if >15% of rows are extreme
+        if extreme_rows > H * 0.15:
+            line_frames.append(t)
+    
+    return line_frames
 
 def detect_motion_frames(mip):
     T, H, W = mip.shape
@@ -132,6 +165,13 @@ def detect_motion_frames(mip):
         excluded.extend(spike_hits)
         excluded = sorted(set(excluded))
         print(f"Added {len(spike_hits)} downward spike frames")
+    
+    # Additional: detect horizontal line artifacts
+    if USE_LINE_DETECTION:
+        line_hits = detect_line_artifacts(mip, LINE_THRESHOLD)
+        excluded.extend(line_hits)
+        excluded = sorted(set(excluded))
+        print(f"Added {len(line_hits)} frames with line artifacts")
     
     return scores, thr, excluded
 

@@ -30,9 +30,12 @@ TEST_SMOOTHED = True  # Also test smoothed version for comparison
 
 # Selected masks (set USE_ALL=True to analyze all masks)
 SELECTED_MASKS = [
-    "dend_001","dend_003","dend_008", "dend_012", "dend_014", "dend_015", "dend_016", "dend_019"
+    "dend_001","dend_003","dend_008", "dend_012", "dend_014", "dend_016", "dend_019"
 ]
 USE_ALL = True
+
+# Exclude these masks when USE_ALL=True (empty or problematic masks)
+EXCLUDE_MASKS = ["dend_015", "dend_039"]  # Add any empty or unwanted masks here
 
 # Spike detection parameters
 SPIKE_THRESHOLD = 2.0  # ΔF/F threshold for spike detection
@@ -115,8 +118,10 @@ def main():
     # Load masks
     if USE_ALL:
         mask_files = sorted(MASK_FOLDER.glob("dend_*_labelmap.tif"))
-        mask_names = [f.stem.replace("_labelmap", "") for f in mask_files]
-        print(f"Using all {len(mask_names)} available masks")
+        all_mask_names = [f.stem.replace("_labelmap", "") for f in mask_files]
+        # Exclude unwanted masks
+        mask_names = [name for name in all_mask_names if name not in EXCLUDE_MASKS]
+        print(f"Using {len(mask_names)} masks (excluded {len(EXCLUDE_MASKS)}: {EXCLUDE_MASKS})")
     else:
         mask_names = SELECTED_MASKS
         print(f"Using {len(mask_names)} selected masks")

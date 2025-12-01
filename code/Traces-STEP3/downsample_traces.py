@@ -17,7 +17,7 @@ from pathlib import Path
 from scipy.ndimage import gaussian_filter1d
 
 # ===== Matplotlib config =====
-mpl.rcParams['font.family'] = 'Arial'
+mpl.rcParams['font.family'] = 'CMU Serif'
 mpl.rcParams['axes.unicode_minus'] = False
 
 # ===== CONFIG =====
@@ -26,8 +26,8 @@ MOUSE = "rAi162_15"
 RUN = "run1-crop"
 
 # Processing options
-DECIMATE = False      # Take every 5th point (10Hz -> 2Hz)
-SMOOTH = True       # Apply 5-point rolling mean before decimation
+DECIMATE = True      # Take every 2nd point (10Hz -> 5Hz)
+SMOOTH = False       # Apply 2-point rolling mean before decimation
 ORIGINAL_FRAME_RATE = 10.0  # Hz
 
 # ===== PATHS =====
@@ -39,7 +39,7 @@ INPUT_CSV = TRACE_FOLDER / "dff_traces_curated_bgsub.csv"
 # Output paths with suffix
 suffix = ""
 if SMOOTH: suffix += "_smooth"
-if DECIMATE: suffix += "_2hz"
+if DECIMATE: suffix += "_5hz"
 
 OUTPUT_CSV = TRACE_FOLDER / f"dff_traces_curated_bgsub{suffix}.csv"
 PREVIEW_FOLDER = BASE / f"trace_previews_curated{suffix}"
@@ -52,8 +52,9 @@ LINEWIDTH = 1.0
 COLORMAP = "turbo"
 
 # Selected traces for combo plot
-SELECTED_TRACES = ["dend_001","dend_003","dend_008", "dend_012", "dend_014", "dend_015", "dend_016", "dend_019"]
-USE_ALL = True # Set to True to use all available traces
+SELECTED_TRACES = ["dend_001","dend_002","dend_003", "dend_004", "dend_006", "dend_007", "dend_008", "dend_009","dend_025", "dend_035"]
+
+USE_ALL = False# Set to True to use all available traces
 
 def main():
     print(f"Loading traces from: {INPUT_CSV}")
@@ -70,16 +71,20 @@ def main():
         print("Decimating: taking every 2nd point...")
         processed_df = processed_df.iloc[::2]
     
-    # Update frame rate
-    final_frame_rate = ORIGINAL_FRAME_RATE
+    # Calculate time axis - keep original duration, just fewer points
+    T_original = len(df)
+    T_processed = len(processed_df)
+    
     if DECIMATE:
-        final_frame_rate = ORIGINAL_FRAME_RATE / 2
+        # Time points correspond to every 2nd original frame
+        t_axis = np.arange(T_processed) * 2 / ORIGINAL_FRAME_RATE
+        effective_rate = ORIGINAL_FRAME_RATE / 2
+    else:
+        t_axis = np.arange(T_processed) / ORIGINAL_FRAME_RATE
+        effective_rate = ORIGINAL_FRAME_RATE
     
-    T = len(processed_df)
-    t_axis = np.arange(T) / final_frame_rate
-    
-    print(f"Original: {len(df)} frames at {ORIGINAL_FRAME_RATE}Hz")
-    print(f"Processed: {T} frames at {final_frame_rate}Hz")
+    print(f"Original: {T_original} frames at {ORIGINAL_FRAME_RATE}Hz ({T_original/ORIGINAL_FRAME_RATE:.1f}s)")
+    print(f"Processed: {T_processed} frames at {effective_rate}Hz ({t_axis[-1]:.1f}s total)")
     
     # Save processed CSV
     processed_df.to_csv(OUTPUT_CSV)
@@ -143,11 +148,11 @@ def main():
     
     title = f"Stacked ΔF/F Traces"
     if SMOOTH and DECIMATE:
-        title += " (smoothed, 2Hz)"
+        title += f" (smoothed, {effective_rate}Hz)"
     elif SMOOTH:
         title += " (smoothed)"
     elif DECIMATE:
-        title += " (2Hz)"
+        title += f" ({effective_rate}Hz)"
     ax.set_title(title)
     ax.grid(True, alpha=0.3)
     

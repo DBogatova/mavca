@@ -75,11 +75,11 @@ def dice_coeff(a: np.ndarray, b: np.ndarray) -> float:
     return (2.0 * inter / tot) if tot > 0 else 0.0
 
 def z_mip_background_2d(stack_TZYX, t0, t1) -> np.ndarray:
-    """2D background for Napari: Z-MIP of time-max over the event window."""
+    """2D background for Napari: Z-mean of time-max over the event window."""
     seg = stack_TZYX[t0:t1]
     if seg.size == 0: return np.zeros(stack_TZYX.shape[2:], dtype=np.float16)
     vol_tmax = np.max(seg, axis=0)      # (Z,Y,X)
-    return np.max(vol_tmax, axis=0).astype(np.float16)  # (Y,X)
+    return np.mean(vol_tmax, axis=0).astype(np.float16)  # (Y,X)
 
 # ================== MAIN ==================
 def main():

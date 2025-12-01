@@ -53,8 +53,8 @@ TRACE_PKL = TRACE_FOLDER / "dff_traces_curated_bgsub.pkl"
 TRACE_CSV = TRACE_FOLDER / "dff_traces_curated_bgsub.csv"
 PREVIEW_FOLDER = BASE / "trace_previews_curated"; PREVIEW_FOLDER.mkdir(exist_ok=True)
 
-PLOT_ALL_TRACES = True
-SELECTED_NAMES = ["dend_001","dend_003","dend_008", "dend_012", "dend_014", "dend_015", "dend_016", "dend_019"]
+PLOT_ALL_TRACES = False
+SELECTED_NAMES = ["dend_000", "dend_001","dend_002","dend_003", "dend_004", "dend_006", "dend_007", "dend_008", "dend_009","dend_025", "dend_035", "dend_033"]
 
 
 # ================== ΔF/F Stack Reader ==================

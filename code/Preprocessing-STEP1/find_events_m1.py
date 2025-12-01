@@ -214,8 +214,8 @@ def main():
                     # Restore NaNs on bad frames (entire volume)
                     dff_chunk[bad_t] = np.nan
 
-                    # Accumulate for tissue mask (time-mean Z-MIP), NaN-aware
-                    chunk_mip = np.nanmean(dff_chunk, axis=0).max(axis=0)  # (Y,X)
+                    # Accumulate for tissue mask (time-mean Z-mean), NaN-aware
+                    chunk_mip = np.nanmean(dff_chunk, axis=0).mean(axis=0)  # (Y,X)
                     tissue_accumulator += chunk_mip * (t_end - t_start) / T
                     
                     # Save ΔF/F chunk (as Z-pages per timepoint)
@@ -264,7 +264,7 @@ def main():
                     if frame.ndim == 2:
                         mip = frame
                     else:  # (Z,Y,X)
-                        mip = np.nanmax(frame, axis=0)
+                        mip = np.nanmean(frame, axis=0)
                     # Only accumulate if frame has valid data
                     if np.isfinite(mip).any():
                         tissue_accumulator += np.nan_to_num(mip, nan=0.0)
@@ -420,6 +420,10 @@ def main():
 
     # ---- TIMELINE PLOT ----
     print("Saving activity timeline...")
+    # Set CMU Serif font
+    plt.rcParams['font.family'] = 'CMU Serif'
+    plt.rcParams['font.serif'] = ['CMU Serif']
+    
     fig, ax = plt.subplots(3, 1, figsize=(12, 9), sharex=True)
     ax[0].plot(interp_nans_1d(scores.copy()), label="Top-K mean ΔF/F (filled for viz)", color="black")
     ax[0].plot(base, label="Rolling baseline", color="orange")
@@ -436,7 +440,16 @@ def main():
     if len(active) > 0:
         ax[2].scatter(active, z[active], s=4, color="red")
     ax[2].legend(); ax[2].set_xlabel("Frame"); ax[2].set_ylabel("z")
-    plt.tight_layout(); plt.savefig(TIMELINE_PDF, format="pdf"); plt.close()
+    plt.tight_layout()
+    
+    # Save PDF version
+    plt.savefig(TIMELINE_PDF, format="pdf")
+    
+    # Save SVG version
+    timeline_svg = PREPROCESSED / "activity_timeline.svg"
+    plt.savefig(timeline_svg, format="svg", bbox_inches='tight')
+    
+    plt.close()
 
     # ---- SAVE EVENT CROPS FROM SAVED ΔF/F ----
     print("Summarizing and saving event crops...")
@@ -474,9 +487,9 @@ def main():
             out_name = f"event_group_{i:04d}_peak{peak_frame}.tif"
             tifffile.imwrite(EVENT_CROPS / out_name, crop)
 
-            # Save 2D background (Z-MIP of time-max)
+            # Save 2D background (Z-mean of time-max)
             vol_tmax = np.nanmax(crop, axis=0)                  # (Z,Y,X)
-            bg2d = np.nanmax(vol_tmax, axis=0).astype(np.float16)   # (Y,X)
+            bg2d = np.nanmean(vol_tmax, axis=0).astype(np.float16)   # (Y,X)
             tifffile.imwrite(EVENT_CROPS_BG / out_name.replace(".tif", "_bg.tif"),
                              bg2d, dtype=np.float16)
 
