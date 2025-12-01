@@ -9,9 +9,9 @@ Data is organized by date, mouse, and run in the following structure:
 
 ```
 data/
-└── 2025-08-06/
-    └── organoid/
-        └── run4-crop/
+└── yyyy-mm-dd/
+    └── mouse_name/
+        └── run4_name/
             ├── raw/                           # Raw TIFFs from microscope
             │   ├── runB_run4_reslice-crop.tif                    # 4D raw stack (T,Z,Y,X)
             │   └── runB_run4_reslice-crop_processed.tif          # 3D MIP for motion detection
@@ -66,7 +66,7 @@ data/
 
 ### 1. Setup Environment
 ```bash
-cd apical-dendrites-2025
+cd mavca
 python3 -m venv .venv311
 source .venv311/bin/activate
 pip install -r requirements.txt
