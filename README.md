@@ -227,10 +227,10 @@ Masks are shown with nearest neighbors for context, enabling precise manual edit
 ## 📝 Citation
 
 If you use this pipeline, please cite:
-[Your publication details here]
+[Our future publication]
 
 ---
 
 ## 🤝 Contributing
 
-This pipeline is designed for calcium imaging analysis of apical dendrites. For questions or contributions, please contact [your contact info].
+This pipeline is designed for calcium imaging analysis of apical dendrites. For questions or contributions, please contact Daria Bogatova (daria@bu.edu), Anna Devor (adevor@bu.edu).
