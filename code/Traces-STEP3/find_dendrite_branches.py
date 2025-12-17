@@ -18,9 +18,9 @@ from scipy.ndimage import label
 from collections import defaultdict
 
 # Configuration
-DATE = "2025-10-29"
-MOUSE = "rAi162_15"
-RUN = "run1-crop"
+DATE = "2025-12-02"
+MOUSE = "rbp4cre_136_phpeb"
+RUN = "run4"
 
 # Thresholds
 SPATIAL_OVERLAP_THRESHOLD = 0.05  # Minimum Jaccard index for spatial overlap
@@ -28,7 +28,7 @@ TEMPORAL_CORR_THRESHOLD = 0.3     # Minimum correlation during active periods
 MIN_ACTIVE_FRAMES = 10            # Minimum frames to consider for correlation
 
 # Paths
-BASE = Path("/Volumes/IMAC/data") / DATE / MOUSE / RUN
+BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
 MASK_FOLDER = BASE / "labelmaps_curated_dynamic"  # Use curated masks
 TRACE_FILE = BASE / "traces" / "dff_traces_curated_bgsub.csv"
 OUTPUT_FOLDER = BASE / "dendrite_branches"
@@ -105,6 +105,29 @@ def create_merged_mask(masks, mask_names):
             merged |= masks[name]
     return merged
 
+def load_manual_dendrites():
+    """Load manually curated full dendrite masks if they exist"""
+    manual_folder = BASE / "labelmaps_curated_dendrites"
+    if not manual_folder.exists():
+        return None
+    
+    dendrite_masks = {}
+    for mask_path in sorted(manual_folder.glob("dendrite_*_labelmap.tif")):
+        name = mask_path.stem.replace("_labelmap", "")
+        dendrite_masks[name] = tifffile.imread(mask_path).astype(bool)
+    
+    return dendrite_masks if dendrite_masks else None
+
+def find_branches_in_dendrite(dendrite_mask, individual_masks):
+    """Find which individual masks belong to a dendrite mask"""
+    branches = []
+    for mask_name, mask in individual_masks.items():
+        # Check overlap with dendrite
+        overlap = calculate_spatial_overlap(mask, dendrite_mask)
+        if overlap > 0.1:  # 10% overlap threshold
+            branches.append(mask_name)
+    return branches
+
 def main():
     print("Loading masks and traces...")
     masks = load_masks()
@@ -117,47 +140,55 @@ def main():
     
     print(f"Loaded {len(masks)} masks and {len(traces_df.columns)} traces")
     
-    # Find spatially overlapping pairs
-    print("Finding spatially overlapping pairs...")
-    spatial_pairs = []
-    mask_names = list(masks.keys())
+    # Check for manual dendrite curation
+    manual_dendrites = load_manual_dendrites()
+    if manual_dendrites:
+        print(f"Found {len(manual_dendrites)} manually curated dendrites")
+        dendrites = []
+        
+        for dendrite_name, dendrite_mask in manual_dendrites.items():
+            branches = find_branches_in_dendrite(dendrite_mask, masks)
+            if branches:
+                dendrites.append(branches)
+                print(f"{dendrite_name}: {branches}")
+    else:
+        print("No manual curation found, using automatic detection...")
     
-    for i in range(len(mask_names)):
-        for j in range(i+1, len(mask_names)):
-            name1, name2 = mask_names[i], mask_names[j]
-            overlap = calculate_spatial_overlap(masks[name1], masks[name2])
-            
-            if overlap > SPATIAL_OVERLAP_THRESHOLD:
-                spatial_pairs.append((name1, name2, overlap))
-    
-    print(f"Found {len(spatial_pairs)} spatially overlapping pairs")
-    
-    # Filter by temporal correlation
-    print("Checking temporal correlations...")
-    valid_pairs = []
-    
-    for name1, name2, overlap in spatial_pairs:
-        if name1 in traces_df.columns and name2 in traces_df.columns:
-            trace1 = traces_df[name1].values
-            trace2 = traces_df[name2].values
-            
-            corr = calculate_temporal_correlation(trace1, trace2)
-            
-            # Debug specific pair
-            if (name1 == "dend_025" and name2 == "dend_027") or (name1 == "dend_027" and name2 == "dend_025"):
-                print(f"  DEBUG {name1} ↔ {name2}: spatial={overlap:.3f}, temporal={corr:.3f} (threshold={TEMPORAL_CORR_THRESHOLD})")
-            
-            if corr > TEMPORAL_CORR_THRESHOLD:
-                valid_pairs.append((name1, name2))
-                print(f"  {name1} ↔ {name2}: spatial={overlap:.3f}, temporal={corr:.3f}")
-            elif overlap > 0.01:  # Show failed pairs with some overlap
-                print(f"  FAILED {name1} ↔ {name2}: spatial={overlap:.3f}, temporal={corr:.3f}")
-    
-    print(f"Found {len(valid_pairs)} valid branch pairs")
-    
-    # Group into dendrites
-    dendrites = find_connected_components(valid_pairs)
-    print(f"Identified {len(dendrites)} multi-branch dendrites")
+        # Find spatially overlapping pairs
+        print("Finding spatially overlapping pairs...")
+        spatial_pairs = []
+        mask_names = list(masks.keys())
+        
+        for i in range(len(mask_names)):
+            for j in range(i+1, len(mask_names)):
+                name1, name2 = mask_names[i], mask_names[j]
+                overlap = calculate_spatial_overlap(masks[name1], masks[name2])
+                
+                if overlap > SPATIAL_OVERLAP_THRESHOLD:
+                    spatial_pairs.append((name1, name2, overlap))
+        
+        print(f"Found {len(spatial_pairs)} spatially overlapping pairs")
+        
+        # Filter by temporal correlation
+        print("Checking temporal correlations...")
+        valid_pairs = []
+        
+        for name1, name2, overlap in spatial_pairs:
+            if name1 in traces_df.columns and name2 in traces_df.columns:
+                trace1 = traces_df[name1].values
+                trace2 = traces_df[name2].values
+                
+                corr = calculate_temporal_correlation(trace1, trace2)
+                
+                if corr > TEMPORAL_CORR_THRESHOLD:
+                    valid_pairs.append((name1, name2))
+                    print(f"  {name1} ↔ {name2}: spatial={overlap:.3f}, temporal={corr:.3f}")
+        
+        print(f"Found {len(valid_pairs)} valid branch pairs")
+        
+        # Group into dendrites
+        dendrites = find_connected_components(valid_pairs)
+        print(f"Identified {len(dendrites)} multi-branch dendrites")
     
     # Create merged masks and save results
     results = []

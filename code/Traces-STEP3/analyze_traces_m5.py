@@ -17,11 +17,11 @@ from scipy.ndimage import gaussian_filter1d
 from scipy.fft import rfft, rfftfreq
 
 # ========= CONFIG =========
-DATE  = "2025-08-06"
-MOUSE = "organoid"
-RUN   = "run8"
+DATE = "2025-12-02"
+MOUSE = "rbp4cre_136_phpeb"
+RUN = "run4"
 
-BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/data") / DATE / MOUSE / RUN
+BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
 TRACE_PATH = BASE / "traces" / "dff_traces_curated_bgsub.csv"
 OUTPUT_DIR = BASE / "traces"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

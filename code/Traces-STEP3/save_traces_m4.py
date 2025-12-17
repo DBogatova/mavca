@@ -33,19 +33,19 @@ mpl.rcParams['font.family'] = 'CMU Serif'
 mpl.rcParams['axes.unicode_minus'] = False
 
 # ===== CONFIG =====
-DATE = "2025-10-29"
-MOUSE = "rAi162_15"
-RUN = "run1-crop"
-FRAME_RATE = 10  # Hz
+DATE = "2025-12-02"
+MOUSE = "rbp4cre_136_phpeb"
+RUN = "run4"
+FRAME_RATE = 5  # Hz
 ARTIFACT_Z = -0.5  # replace ΔF/F < -0.5 with 0 (before smoothing)
 SMOOTH_SIGMA = 0.5  # for gaussian_filter1d
 CHUNK_T = 118  # time frames per chunk for memory efficiency
 
 # ===== PATHS =====
 PROJECT_ROOT = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025")
-BASE = PROJECT_ROOT / "data" / DATE / MOUSE / RUN
+BASE = PROJECT_ROOT / "scape-data" / DATE / MOUSE / RUN
 RAW_CLEAN_PATH = BASE / "preprocessed" / "raw_clean.tif"
-RAW_ORIG_PATH = BASE / "raw" / f"runB_run4_reslice-crop.tif"
+RAW_ORIG_PATH = BASE / "raw" / f"runA_run4_rbp4cre_136_phpeb_binimagej_reslice_green.tif"
 RAW_STACK_PATH = RAW_CLEAN_PATH if RAW_CLEAN_PATH.exists() else RAW_ORIG_PATH
 MASK_FOLDER = BASE / "labelmaps_curated_dynamic"
 TRACE_FOLDER = BASE / "traces"; TRACE_FOLDER.mkdir(exist_ok=True)
@@ -53,7 +53,7 @@ TRACE_PKL = TRACE_FOLDER / "dff_traces_curated_bgsub.pkl"
 TRACE_CSV = TRACE_FOLDER / "dff_traces_curated_bgsub.csv"
 PREVIEW_FOLDER = BASE / "trace_previews_curated"; PREVIEW_FOLDER.mkdir(exist_ok=True)
 
-PLOT_ALL_TRACES = False
+PLOT_ALL_TRACES = True
 SELECTED_NAMES = ["dend_000", "dend_001","dend_002","dend_003", "dend_004", "dend_006", "dend_007", "dend_008", "dend_009","dend_025", "dend_035", "dend_033"]
 
 

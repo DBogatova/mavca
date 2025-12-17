@@ -9,9 +9,9 @@ import pandas as pd
 from pathlib import Path
 
 # Configuration
-DATE = "2025-08-06"
-MOUSE = "organoid"
-RUN = "run4-crop"
+DATE = "2025-12-02"
+MOUSE = "rbp4cre_136_phpeb"
+RUN = "run4"
 
 SELECTED_NAMES = [
     "dend_001","dend_003","dend_005","dend_006","dend_008","dend_011","dend_012", "dend_013", "dend_014", "dend_015", "dend_016", "dend_019"
@@ -20,7 +20,7 @@ USE_ALL = True  # Set to True to use all available masks
 
 # Paths
 PROJECT_ROOT = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025")
-BASE = PROJECT_ROOT / "data" / DATE / MOUSE / RUN
+BASE = PROJECT_ROOT / "scape-data" / DATE / MOUSE / RUN
 MASK_FOLDER = BASE / "labelmaps_curated_dynamic"
 
 def main():

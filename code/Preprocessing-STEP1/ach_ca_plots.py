@@ -19,12 +19,12 @@ import pandas as pd
 from scipy.optimize import curve_fit
 
 # ===== CONFIGURATION =====
-DATE = "2025-08-29"
-MOUSE = "rAi162_18"
-RUN   = "run6"
+DATE = "2025-12-02"
+MOUSE = "rbp4cre_136_phpeb"
+RUN   = "run4"
 
 # Acquisition
-FS_HZ = 10.0   # frames per second
+FS_HZ = 5.0   # frames per second
 
 # Z-handling
 ZMIN = 0
@@ -44,9 +44,9 @@ MAX_LAG_FRAMES = 100
 CC_NORMALIZE   = True
 
 # Paths
-BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/data") / DATE / MOUSE / RUN
-RAW_ACH_PATH = BASE / "raw" / f"runA_{RUN}_{MOUSE}_red_reslice.tif"
-RAW_CA_PATH  = BASE / "raw" / f"runA_{RUN}_{MOUSE}_green_reslice.tif"
+BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
+RAW_ACH_PATH = BASE / "raw" / f"runA_{RUN}_{MOUSE}_binimagej_reslice_red.tif"
+RAW_CA_PATH  = BASE / "raw" / f"runA_{RUN}_{MOUSE}_binimagej_reslice_green.tif"
 
 OUT_DIR = BASE / "quicklook"
 OUT_DIR.mkdir(exist_ok=True, parents=True)
@@ -163,9 +163,9 @@ def main():
     ca_dff,  ca_F0  = compute_dff_from_global(ca_raw,  DFF_WINDOW, DFF_PCT)
 
     # save CSV
-    t = np.arange(T)
+    t_sec = np.arange(T) / FS_HZ
     df = pd.DataFrame({
-        "frame": t,
+        "time_sec": t_sec,
         "ACh_raw": ach_raw, "ACh_corr": ach_corr, "ACh_fit": ach_fit, "ACh_dFF": ach_dff,
         "Ca_raw": ca_raw,   "Ca_corr": ca_corr,   "Ca_fit": ca_fit,   "Ca_dFF": ca_dff
     })
@@ -174,19 +174,34 @@ def main():
 
     # figure
     fig, axes = plt.subplots(2,2, figsize=(12,6), sharex=True)
-    axes[0,0].plot(t, ach_raw, label="raw"); axes[0,0].plot(t, ach_fit, "--", label="fit"); axes[0,0].plot(t, ach_corr, label="corr")
+    axes[0,0].plot(t_sec, ach_raw, label="raw"); axes[0,0].plot(t_sec, ach_fit, "--", label="fit"); axes[0,0].plot(t_sec, ach_corr, label="corr")
     axes[0,0].set_title("ACh raw/fit/corr"); axes[0,0].legend()
-    axes[0,1].plot(t, ach_dff, label="ACh ΔF/F"); axes[0,1].set_title("ACh ΔF/F")
-    axes[1,0].plot(t, ca_raw, label="raw"); axes[1,0].plot(t, ca_fit, "--", label="fit"); axes[1,0].plot(t, ca_corr, label="corr")
-    axes[1,0].set_title("Ca raw/fit/corr"); axes[1,0].legend()
-    axes[1,1].plot(t, ca_dff, label="Ca ΔF/F"); axes[1,1].set_title("Ca ΔF/F")
+    axes[0,1].plot(t_sec, ach_dff, label="ACh ΔF/F"); axes[0,1].set_title("ACh ΔF/F")
+    axes[1,0].plot(t_sec, ca_raw, label="raw"); axes[1,0].plot(t_sec, ca_fit, "--", label="fit"); axes[1,0].plot(t_sec, ca_corr, label="corr")
+    axes[1,0].set_title("Ca raw/fit/corr"); axes[1,0].legend(); axes[1,0].set_xlabel("Time (s)")
+    axes[1,1].plot(t_sec, ca_dff, label="Ca ΔF/F"); axes[1,1].set_title("Ca ΔF/F"); axes[1,1].set_xlabel("Time (s)")
     fig.tight_layout(); fig.savefig(FIG_PATH, dpi=200); plt.close(fig)
     print(f"Saved figure → {FIG_PATH}")
 
+    # ΔF/F overlay plot
+    ach_dff_pct = ach_dff * 100
+    ca_dff_pct = ca_dff * 100 + 10  # offset
+    
+    overlay_path = OUT_DIR / "dff_overlay.pdf"
+    plt.figure(figsize=(12, 6))
+    plt.plot(t_sec, ach_dff_pct, label="ACh ΔF/F", color='red')
+    plt.plot(t_sec, ca_dff_pct, label="Ca ΔF/F (+10% offset)", color='green')
+    plt.xlabel("Time (s)"); plt.ylabel("ΔF/F (%)")
+    plt.title("ACh vs Ca ΔF/F")
+    plt.legend(); plt.grid(alpha=0.3)
+    plt.savefig(overlay_path, dpi=200); plt.close()
+    print(f"Saved overlay → {overlay_path}")
+    
     # cross-correlation
     lags, r = cross_correlation(ach_dff, ca_dff, MAX_LAG_FRAMES, zscore=CC_NORMALIZE)
-    pd.DataFrame({"lag_frames": lags, "r": r}).to_csv(CC_CSV_PATH, index=False)
-    plt.figure(); plt.plot(lags, r); plt.axvline(0, ls="--", c="k"); plt.xlabel("Lag (frames)"); plt.ylabel("r")
+    lags_sec = lags / FS_HZ
+    pd.DataFrame({"lag_sec": lags_sec, "r": r}).to_csv(CC_CSV_PATH, index=False)
+    plt.figure(); plt.plot(lags_sec, r); plt.axvline(0, ls="--", c="k"); plt.xlabel("Lag (s)"); plt.ylabel("r")
     plt.title("Cross-corr ACh vs Ca ΔF/F"); plt.savefig(CC_FIG_PATH, dpi=200); plt.close()
     print(f"Saved cross-corr → {CC_FIG_PATH}")
 

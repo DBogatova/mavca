@@ -25,16 +25,16 @@ from scipy.spatial.distance import cdist
 import csv
 
 # ======= CONFIG =======
-DATE  = "2025-10-29"
-MOUSE = "rAi162_15"
-RUN   = "run1-crop"
+DATE  = "2025-12-02"
+MOUSE = "rbp4cre_136_phpeb"
+RUN   = "run4"
 
-VOXEL_SIZE = (4.7, 1.0, 1.2)  # (Z,Y,X) μm
+VOXEL_SIZE = (3.9, 0.5, 0.6)  # (Z,Y,X) μm
 NEIGHBOR_K_DEFAULT = 3
 NEIGHBOR_K_MAX = 6
 
 # ======= PATHS =======
-BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/data") / DATE / MOUSE / RUN
+BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
 LABELMAP_FOLDER = BASE / "labelmaps"
 BGS_FOLDER      = BASE / "labelmap_backgrounds"
 OUTPUT_FOLDER   = BASE / "labelmaps_curated_dynamic"
@@ -184,15 +184,21 @@ def main():
     # --- Navigation ---
     @v.bind_key("Right")
     def _next(viewer):
-        if idx[0] < N - 1:
+        start = idx[0]
+        while idx[0] < N - 1:
             idx[0] += 1
-            refresh_scene()
+            if idx[0] not in deleted:
+                break
+        refresh_scene()
 
     @v.bind_key("Left")
     def _prev(viewer):
-        if idx[0] > 0:
+        start = idx[0]
+        while idx[0] > 0:
             idx[0] -= 1
-            refresh_scene()
+            if idx[0] not in deleted:
+                break
+        refresh_scene()
 
     # Toggle background
     @v.bind_key("b")
@@ -265,7 +271,8 @@ def main():
         a = edited.get(i, masks[i])
         b = edited.get(j, masks[j])
         edited[i] = mask_union(a, b)
-        print(f"🧩 MERGE neighbor#{n} ({names[j]}) → {names[i]}")
+        deleted.add(j)  # Remove merged neighbor
+        print(f"🧩 MERGE neighbor#{n} ({names[j]}) → {names[i]} (neighbor deleted)")
         refresh_scene()
 
     def subtract_neighbor(n):

@@ -35,16 +35,16 @@ mpl.rcParams['axes.unicode_minus'] = False
 mpl.rcParams['mathtext.default'] = 'regular'
 
 # ========= CONFIG =========
-DATE = "2025-08-27"
-MOUSE = "rAi162_18"
-RUN   = "run7"
+DATE = "2025-12-02"
+MOUSE = "rbp4cre_136_phpeb"
+RUN = "run4"
 
-FRAME_RATE   = 10.0    # Hz
+FRAME_RATE   = 5    # Hz
 Y_CROP       = 3
 SMOOTH_SIGMA = 0.5    # frames
 
 # Voxel sizes (μm) for accurate 3D distances
-VOXEL_SIZE_UM = (9.4, 1.0, 1.2)  # (Z, Y, X)
+VOXEL_SIZE_UM = (3.9, 0.5, 0.6)  # (Z, Y, X)
 
 # ACh neighborhood radii in μm
 R1_MIN_UM, R1_MAX_UM = 2.0, 6.0     # near ring
@@ -66,10 +66,10 @@ ACH_MIN_MAX = 1e-12
 
 # ========= PATHS =========
 PROJECT_ROOT = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025")
-BASE = PROJECT_ROOT / "data" / DATE / MOUSE / RUN
+BASE = PROJECT_ROOT / "scape-data" / DATE / MOUSE / RUN
 
-RAW_CA_PATH  = BASE / "raw" / f"runA_{RUN}_{MOUSE}_green_reslice.tif"
-RAW_ACH_PATH = BASE / "raw" / f"runA_{RUN}_{MOUSE}_red_reslice.tif"
+RAW_CA_PATH  = BASE / "raw" / f"runA_{RUN}_{MOUSE}_binimagej_reslice_green.tif"
+RAW_ACH_PATH = BASE / "raw" / f"runA_{RUN}_{MOUSE}_binimagej_reslice_red.tif"
 
 MASK_FOLDER  = BASE / "labelmaps_curated_dynamic"
 
@@ -80,6 +80,22 @@ FIG_DIR.mkdir(parents=True, exist_ok=True)
 CSV_WIDE = OUT_DIR / "traces_ca_ach_all_masks.csv"
 
 # ========= Helpers =========
+def exp_decay(x, a, b, c):
+    return a * np.exp(-b * x) + c
+
+def bleach_correct_trace(trace):
+    from scipy.optimize import curve_fit
+    x = np.arange(len(trace), dtype=np.float32)
+    y = trace.astype(np.float32)
+    p0 = (float(y.max()-y.min()), 1e-4, float(np.median(y)))
+    try:
+        (a, b, c), _ = curve_fit(exp_decay, x, y, p0=p0, maxfev=10000)
+        fit = exp_decay(x, a, b, c)
+        corrected = y - fit + np.median(fit)
+        return corrected.astype(np.float32)
+    except Exception:
+        return y.copy()
+
 def dff_stack_from_raw(raw):
     T = raw.shape[0]
     n0 = max(1, int(T * 0.20))
@@ -224,9 +240,14 @@ def main():
         ach_r1   = mean_over(r1_mask,   ach_dff) if r1_mask.any() else np.zeros(T, np.float32)
         ach_r2   = mean_over(r2_mask,   ach_dff) if r2_mask.any() else np.zeros(T, np.float32)
 
-        ach_core_pct = gaussian_filter1d(ach_core, SMOOTH_SIGMA) * 100.0
-        ach_r1_pct   = gaussian_filter1d(ach_r1,   SMOOTH_SIGMA) * 100.0
-        ach_r2_pct   = gaussian_filter1d(ach_r2,   SMOOTH_SIGMA) * 100.0
+        # Bleach correct ACh traces
+        ach_core_corr = bleach_correct_trace(ach_core)
+        ach_r1_corr   = bleach_correct_trace(ach_r1) if r1_mask.any() else ach_r1
+        ach_r2_corr   = bleach_correct_trace(ach_r2) if r2_mask.any() else ach_r2
+
+        ach_core_pct = gaussian_filter1d(ach_core_corr, SMOOTH_SIGMA) * 100.0
+        ach_r1_pct   = gaussian_filter1d(ach_r1_corr,   SMOOTH_SIGMA) * 100.0
+        ach_r2_pct   = gaussian_filter1d(ach_r2_corr,   SMOOTH_SIGMA) * 100.0
 
         # ---- Save per-mask CSV ----
         df = pd.DataFrame({
