@@ -35,16 +35,16 @@ mpl.rcParams['axes.unicode_minus'] = False
 mpl.rcParams['mathtext.default'] = 'regular'
 
 # ========= CONFIG =========
-DATE = "2025-12-02"
-MOUSE = "rbp4cre_136_phpeb"
-RUN = "run4"
+DATE = "2025-12-25"
+MOUSE = "rAi162_phpeb"
+RUN = "run1"
 
 FRAME_RATE   = 5    # Hz
 Y_CROP       = 3
 SMOOTH_SIGMA = 0.5    # frames
 
 # Voxel sizes (μm) for accurate 3D distances
-VOXEL_SIZE_UM = (3.9, 0.5, 0.6)  # (Z, Y, X)
+VOXEL_SIZE_UM = (3.9, 1.0, 1.2)  # (Z, Y, X)
 
 # ACh neighborhood radii in μm
 R1_MIN_UM, R1_MAX_UM = 2.0, 6.0     # near ring
@@ -68,8 +68,8 @@ ACH_MIN_MAX = 1e-12
 PROJECT_ROOT = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025")
 BASE = PROJECT_ROOT / "scape-data" / DATE / MOUSE / RUN
 
-RAW_CA_PATH  = BASE / "raw" / f"runA_{RUN}_{MOUSE}_binimagej_reslice_green.tif"
-RAW_ACH_PATH = BASE / "raw" / f"runA_{RUN}_{MOUSE}_binimagej_reslice_red.tif"
+RAW_CA_PATH  = BASE / "raw" / f"runA_{RUN}_{MOUSE}_green.tif"
+RAW_ACH_PATH = BASE / "raw" / f"runA_{RUN}_{MOUSE}_red.tif"
 
 MASK_FOLDER  = BASE / "labelmaps_curated_dynamic"
 
@@ -259,20 +259,31 @@ def main():
         })
         df.to_csv(OUT_DIR / f"{name}_CaBG_AChNeighborhood.csv", index=False)
 
-        # ---- Plot (2 rows) ----
-        fig, axes = plt.subplots(2, 1, figsize=(11, 5), sharex=True)
-        axes[0].plot(t_sec, ca_bgsub, color=col_ca, lw=1.6)
-        axes[0].set_title(f"{name}: Ca (core − shell)  •  ACh core/near/far")
-        axes[0].set_ylabel("Ca ΔF/F (%)")
-        axes[0].grid(alpha=0.3)
+        # ---- Plot (MIP + 2 rows) ----
+        mip = m.max(axis=0).astype(bool)
+        fig, axes = plt.subplots(2, 2, figsize=(14, 5), gridspec_kw={"width_ratios": [1, 2]})
+        
+        # Left: MIP
+        rgb = np.zeros((*mip.shape, 3), dtype=np.float32)
+        for c in range(3): rgb[..., c][mip] = col_ca[c]
+        axes[0, 0].imshow(rgb)
+        axes[0, 0].set_title(f"{name} — MIP")
+        axes[0, 0].axis("off")
+        axes[1, 0].axis("off")  # Hide bottom left
+        
+        # Right: traces
+        axes[0, 1].plot(t_sec, ca_bgsub, color=col_ca, lw=1.6)
+        axes[0, 1].set_title(f"{name}: Ca (core − shell)  •  ACh core/near/far")
+        axes[0, 1].set_ylabel("Ca ΔF/F (%)")
+        axes[0, 1].grid(alpha=0.3)
 
-        axes[1].plot(t_sec, ach_core_pct, color=col_core, lw=1.4, label="ACh core")
-        axes[1].plot(t_sec, ach_r1_pct,   color=col_r1,   lw=1.2, label=f"ACh {R1_MIN_UM}-{R1_MAX_UM} μm")
-        axes[1].plot(t_sec, ach_r2_pct,   color=col_r2,   lw=1.0, label=f"ACh {R2_MIN_UM}-{R2_MAX_UM} μm")
-        axes[1].set_xlabel("Time (s)")
-        axes[1].set_ylabel("ACh ΔF/F (%)")
-        axes[1].grid(alpha=0.3)
-        axes[1].legend(loc="lower right", fontsize=8, frameon=False)
+        axes[1, 1].plot(t_sec, ach_core_pct, color=col_core, lw=1.4, label="ACh core")
+        axes[1, 1].plot(t_sec, ach_r1_pct,   color=col_r1,   lw=1.2, label=f"ACh {R1_MIN_UM}-{R1_MAX_UM} μm")
+        axes[1, 1].plot(t_sec, ach_r2_pct,   color=col_r2,   lw=1.0, label=f"ACh {R2_MIN_UM}-{R2_MAX_UM} μm")
+        axes[1, 1].set_xlabel("Time (s)")
+        axes[1, 1].set_ylabel("ACh ΔF/F (%)")
+        axes[1, 1].grid(alpha=0.3)
+        axes[1, 1].legend(loc="lower right", fontsize=8, frameon=False)
 
         fig.tight_layout()
         # Save PDF and SVG versions

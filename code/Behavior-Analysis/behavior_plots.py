@@ -13,13 +13,17 @@ from scipy.io import loadmat
 import tifffile
 
 # Configuration
-DATE = "2025-12-02"
-MOUSE = "rbp4cre_136_phpeb"
-RUN = "run4"
+DATE = "2025-12-25"
+MOUSE = "rAi162_phpeb"
+RUN = "run1"
+
+# Manual frame shift (frames cropped from beginning)
+MANUAL_FRAME_SHIFT = 34  # frames cropped manually
+FRAME_RATE = 5  # Hz
 
 # Paths
 BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
-BEHAVIOR_MAT = BASE / "behavior" / f"{MOUSE}_25-12-02_Run004_behavior.mat"
+BEHAVIOR_MAT = BASE / "behavior" / f"{MOUSE}_25-12-26_Run001_behavior.mat"
 TRIGGER_MAT = BASE / "trigger" / "Run004_t1.mat"
 QUICKLOOK_CSV = BASE / "quicklook" / "dual_quicklook_traces.csv"
 OUTPUT_PATH = BASE / "behavior_combined_plot.png"
@@ -31,7 +35,9 @@ def load_calcium_ach_data():
         return None, None, None
     
     df = pd.read_csv(QUICKLOOK_CSV)
-    time = df.index.values / 5.0  # Assuming 5Hz
+    # Apply manual frame shift
+    time_shift = MANUAL_FRAME_SHIFT / FRAME_RATE  # Convert frames to seconds
+    time = df.index.values / FRAME_RATE + time_shift
     ach_dff = df['ACh_dFF'].values * 100  # Convert to %
     ca_dff = df['Ca_dFF'].values * 100
     
@@ -58,8 +64,8 @@ def load_behavior_data():
 
 def load_accelerometer_data():
     """Load accelerometer from CSV files"""
-    accel_csv = BASE / "trigger" / "Run004_t1_accel.csv"
-    trigger_csv = BASE / "trigger" / "Run004_t1_trigger.csv"
+    accel_csv = BASE / "trigger" / "Run001_t1_accel.csv"
+    trigger_csv = BASE / "trigger" / "Run001_t1_trigger.csv"
     
     if not accel_csv.exists() or not trigger_csv.exists():
         print(f"CSV files not found: {accel_csv}, {trigger_csv}")
@@ -110,8 +116,8 @@ def plot_combined_signals():
     
     # Plot 1: ACh
     if time_ca is not None:
-        # Account for 10 deleted frames (2 seconds at 5Hz) + 2s offset
-        time_ca_corrected = time_ca + 0.0
+        # Start Ca/ACh time axis from 0
+        time_ca_corrected = time_ca - time_ca[0]
         axes[0].plot(time_ca_corrected, ach_dff, color='red', linewidth=1.5)
         axes[0].set_ylabel('ACh ΔF/F (%)')
         axes[0].set_title('ACh Signal')
@@ -124,69 +130,90 @@ def plot_combined_signals():
         axes[1].set_title('Ca Signal')
         axes[1].grid(alpha=0.3)
     
-    # Use trigger onset + 2s for Ca/ACh offset
+    # Crop behavior signals by 6.8 seconds (34 frames worth) to match Ca/ACh
+    crop_time = MANUAL_FRAME_SHIFT / FRAME_RATE  # 6.8 seconds
+    behavior_crop_samples = int(crop_time * 10)  # 68 samples at 10Hz
+    accel_crop_samples = int(crop_time * 1000)   # 6800 samples at 1kHz
+    
+    # Use trigger onset + 2s for original offset
     scape_start_sec = (offset / 1000.0) + 2.0 if offset > 0 else 2.0
-    print(f"Cropping from {scape_start_sec:.1f}s (trigger at {offset/1000.0:.3f}s + 2s Ca/ACh offset)")
+    scape_start_behavior_samples = int(scape_start_sec * 10)
+    scape_start_accel_samples = int(scape_start_sec * 1000)
     
-    scape_start_behavior_samples = int(scape_start_sec * 10)  # Convert to samples at 10Hz
-    scape_start_accel_samples = int(scape_start_sec * 1000)  # Convert to samples at 1kHz
-    
-    # Plot 3: Pupil (crop from trigger + 2s)
+    # Plot 3: Pupil (crop 6.8s and match Ca/ACh duration)
     if time_behavior is not None and pupil is not None:
-        # Try to get raw pupil data instead of smooth
         try:
             mat_data = loadmat(BEHAVIOR_MAT)
             pupil_data = mat_data['pupil']['pupil_raw'][0][0].flatten()
         except:
             pupil_data = pupil
         
-        # Crop data from fixed 25.1s onwards
-        if scape_start_behavior_samples < len(pupil_data):
-            pupil_cropped = pupil_data[scape_start_behavior_samples:]
-            time_cropped = np.arange(len(pupil_cropped)) / 10.0
+        # Crop from trigger start + additional 6.8s crop
+        start_idx = scape_start_behavior_samples + behavior_crop_samples
+        if start_idx < len(pupil_data):
+            pupil_cropped = pupil_data[start_idx:]
         else:
             pupil_cropped = pupil_data
-            time_cropped = time_behavior
         
+        # Match Ca/ACh duration and start from time 0
+        if time_ca is not None:
+            ca_duration = time_ca[-1] - time_ca[0]
+            max_samples = int(ca_duration * 10)
+            if len(pupil_cropped) > max_samples:
+                pupil_cropped = pupil_cropped[:max_samples]
+        
+        time_cropped = np.arange(len(pupil_cropped)) / 10.0
         axes[2].plot(time_cropped, pupil_cropped, color='blue', linewidth=1.0)
         axes[2].set_ylabel('Pupil Dilation')
         axes[2].set_title('Pupil Signal')
         axes[2].grid(alpha=0.3)
     
-    # Plot 4: Whisker (crop from trigger)
+    # Plot 4: Whisker (crop 6.8s and match Ca/ACh duration)
     if time_behavior is not None and whisker is not None:
-        # Try to get raw whisker data instead of smooth
         try:
             mat_data = loadmat(BEHAVIOR_MAT)
             whisker_data = mat_data['whisker']['whisker_raw_pad'][0][0].flatten()
         except:
             whisker_data = whisker
         
-        # Crop data from fixed 25.1s onwards
-        if scape_start_behavior_samples < len(whisker_data):
-            whisker_cropped = whisker_data[scape_start_behavior_samples:]
-            time_cropped = np.arange(len(whisker_cropped)) / 10.0
+        # Crop from trigger start + additional 6.8s crop
+        start_idx = scape_start_behavior_samples + behavior_crop_samples
+        if start_idx < len(whisker_data):
+            whisker_cropped = whisker_data[start_idx:]
         else:
             whisker_cropped = whisker_data
-            time_cropped = time_behavior
         
-        # Apply light smoothing to whisker data
+        # Match Ca/ACh duration and start from time 0
+        if time_ca is not None:
+            ca_duration = time_ca[-1] - time_ca[0]
+            max_samples = int(ca_duration * 10)
+            if len(whisker_cropped) > max_samples:
+                whisker_cropped = whisker_cropped[:max_samples]
+        
+        time_cropped = np.arange(len(whisker_cropped)) / 10.0
         whisker_smooth = gaussian_filter1d(whisker_cropped, sigma=1.0)
         axes[3].plot(time_cropped, whisker_smooth, color='orange', linewidth=1.0)
         axes[3].set_ylabel('Whisker Motion')
         axes[3].set_title('Whisker Signal')
         axes[3].grid(alpha=0.3)
     
-    # Plot 5: Accelerometer (crop from trigger + 2s)
+    # Plot 5: Accelerometer (crop 6.8s and match Ca/ACh duration)
     if time_accel is not None and accel is not None:
-        # Crop accelerometer data from fixed 25.1s onwards
-        if scape_start_accel_samples < len(accel):
-            accel_cropped = accel[scape_start_accel_samples:]
-            time_accel_cropped = np.arange(len(accel_cropped)) / 1000.0
+        # Crop from trigger start + additional 6.8s crop
+        start_idx = scape_start_accel_samples + accel_crop_samples
+        if start_idx < len(accel):
+            accel_cropped = accel[start_idx:]
         else:
             accel_cropped = accel
-            time_accel_cropped = time_accel
         
+        # Match Ca/ACh duration and start from time 0
+        if time_ca is not None:
+            ca_duration = time_ca[-1] - time_ca[0]
+            max_samples = int(ca_duration * 1000)
+            if len(accel_cropped) > max_samples:
+                accel_cropped = accel_cropped[:max_samples]
+        
+        time_accel_cropped = np.arange(len(accel_cropped)) / 1000.0
         axes[4].plot(time_accel_cropped, accel_cropped, color='purple', linewidth=1.0)
         axes[4].set_ylabel('Acceleration')
         axes[4].set_title('Accelerometer')

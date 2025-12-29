@@ -34,9 +34,9 @@ from skimage.measure import regionprops
 from tqdm import tqdm
 
 # ================== CONFIG ==================
-DATE = "2025-12-02"
-MOUSE = "rbp4cre_136_phpeb"
-RUN = "run4"
+DATE = "2025-12-25"
+MOUSE = "rAi162_phpeb"
+RUN = "run1"
 
 BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
 EVENT_FOLDER = BASE / "preprocessed" / "event_crops"
@@ -48,19 +48,19 @@ for p in (OUT_LABELS, OUT_PREV, OUT_BGS):
     p.mkdir(parents=True, exist_ok=True)
 
 # ---- Physical voxel size ----
-VOXEL_SIZE = (3.9, 0.5, 0.6)       # (Z,Y,X) μm
+VOXEL_SIZE = (3.9, 1.0, 1.2)       # (Z,Y,X) μm
 VOXEL_VOL  = float(np.prod(VOXEL_SIZE))
 
 # ---- Detection parameters ----
-INTENSITY_PERCENTILE = 99.5        # per-frame percentile on enhanced deep stack
+INTENSITY_PERCENTILE = 99.8        # per-frame percentile on enhanced deep stack
 Y_IGNORE_TOP_FRAC = 0.18           # ignore top 18% of Y when detecting (surface)
 
 MAX_FRAME_GAP = 1
 MIN_EVENT_LENGTH = 1               # allow even very brief events
 
 # ---- Volume gates (μm³) ----
-MIN_VOL = 1000.0                    # keep small dendrites
-MAX_VOL = 15000.0                     # None → no upper cap
+MIN_VOL = 3000.0                    # keep small dendrites
+MAX_VOL = 150000.0                     # None → no upper cap
 
 # ---- 2D/3D clean-up ----
 SLICE_OPEN_K  = 3                  # per-slice open

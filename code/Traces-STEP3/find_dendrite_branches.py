@@ -18,9 +18,9 @@ from scipy.ndimage import label
 from collections import defaultdict
 
 # Configuration
-DATE = "2025-12-02"
-MOUSE = "rbp4cre_136_phpeb"
-RUN = "run4"
+DATE = "2025-12-25"
+MOUSE = "rAi162_phpeb"
+RUN = "run1"
 
 # Thresholds
 SPATIAL_OVERLAP_THRESHOLD = 0.05  # Minimum Jaccard index for spatial overlap

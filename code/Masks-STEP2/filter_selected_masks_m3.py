@@ -25,11 +25,11 @@ from scipy.spatial.distance import cdist
 import csv
 
 # ======= CONFIG =======
-DATE  = "2025-12-02"
-MOUSE = "rbp4cre_136_phpeb"
-RUN   = "run4"
+DATE  = "2025-12-25"
+MOUSE = "rAi162_phpeb"
+RUN   = "run1"
 
-VOXEL_SIZE = (3.9, 0.5, 0.6)  # (Z,Y,X) μm
+VOXEL_SIZE = (3.9, 1.0 , 1.2)  # (Z,Y,X) μm
 NEIGHBOR_K_DEFAULT = 3
 NEIGHBOR_K_MAX = 6
 
