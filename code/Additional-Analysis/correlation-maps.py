@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
 """
-correlation-maps.py  (Module 4B — RAW-only, Y/X crop-aware)
+correlation-maps.py  (Module 4B — RAW-only, crop-aware, event-detect-safe, better previews)
 
 Seeded voxel correlation maps + candidate mask discovery (post-Module 4).
 
-You do NOT need a precomputed ΔF/F file.
-This script:
-  - loads RAW (T,Z,Y,X) from TIFF (or NPY)
-  - applies optional cropping (e.g., Y_CROP=3 => raw[:, :, 3:, :])
-  - computes a single F0 volume (default: mean of last N frames)
-  - computes ΔF/F mask traces without storing full ΔF/F
-  - detects events on each seed mask trace (optional)
-  - computes voxel-wise correlation maps per window (tile-based)
-  - extracts candidate correlated clusters outside curated union masks
-  - saves corrmaps, candidates, previews, and candidates.csv
+Key features
+------------
+1) No precomputed ΔF/F file required.
+2) Cropping supported: --y_crop / --x_crop (e.g., Y_CROP=3).
+3) Event detection is done on the *un-regressed* seed trace (prevents "all events are 0").
+4) Global regression (optional) is applied ONLY for correlation maps and candidate traces.
+5) Preview backgrounds can be event-window-specific:
+   --preview_bg win_dff_maxabs   (recommended)
+   --preview_bg win_raw_mip
+   --preview_bg mean
 
-Assumptions
------------
-- Curated masks are TIFF files in a folder. Each is either binary or a labelmap; >0 is treated as mask.
-- Masks are in the same coordinate system as your *cropped* raw.
-  If your pipeline uses Y_CROP=3, run with: --y_crop 3
+Inputs
+------
+--raw   RAW stack (T,Z,Y,X) TIFF/NPY
+--masks folder of curated mask TIFFs (Z,Y,X) or (Y,X); >0 treated as mask
+--out   output folder
 
 Outputs
 -------
@@ -61,7 +61,7 @@ def load_raw(path: Path, mmap: bool = True) -> np.ndarray:
 
     Expected shapes:
       - (T, Z, Y, X) preferred
-      - (T, Y, X) allowed (if already MIP)
+      - (T, Y, X) allowed
     """
     path = Path(path)
     suf = path.suffix.lower()
@@ -164,12 +164,6 @@ def compute_f0(
 ) -> np.ndarray:
     """
     Compute a single F0 volume.
-
-    Modes:
-      - last_mean: mean of last f0_frames frames
-      - last_median: median of last f0_frames frames
-      - percentile: approximate percentile over time using sampled frames
-
     Returns F0 with shape spatial dims (Z,Y,X) or (Y,X).
     """
     T = int(raw.shape[0])
@@ -339,7 +333,7 @@ def corrmap_for_window_raw(
     raw: np.ndarray,
     f0: np.ndarray,
     tissue_mask: np.ndarray,
-    seed_trace_full: np.ndarray,   # ΔF/F seed trace over full run
+    seed_trace_full_for_corr: np.ndarray,   # seed trace used for correlation (may be regressed)
     t0: int,
     t1: int,
     regress_global: bool,
@@ -354,13 +348,8 @@ def corrmap_for_window_raw(
     if Tw <= 1:
         raise ValueError(f"Window too short for correlation: {t0}:{t1}")
 
-    seed = seed_trace_full[t0:t1].astype(np.float32, copy=False)
-
-    if regress_global and global_trace_full is not None:
-        g = global_trace_full[t0:t1].astype(np.float32, copy=False)
-        seed = regress_out(seed, g)
-
-    seed_z = safe_zscore(seed, eps=cfg.eps)  # (Tw,)
+    seed = seed_trace_full_for_corr[t0:t1].astype(np.float32, copy=False)
+    seed_z = safe_zscore(seed, eps=cfg.eps)
     denom = float(max(Tw - 1, 1))
 
     if tissue_mask.ndim == 3:
@@ -501,39 +490,83 @@ def extract_candidates(
 
 
 # -----------------------------
-# Previews
+# Preview backgrounds (more representative)
 # -----------------------------
 
-def mip(arr: np.ndarray) -> np.ndarray:
-    return np.nanmax(arr, axis=0) if arr.ndim == 3 else arr
+def to_2d_mip_over_z(x: np.ndarray) -> np.ndarray:
+    """
+    Convert a 3D (Z,Y,X) -> 2D (Y,X) by MIP.
+    Pass-through for 2D.
+    """
+    if x.ndim == 3:
+        return np.nanmax(x, axis=0)
+    if x.ndim == 2:
+        return x
+    raise ValueError(f"Expected 2D/3D, got ndim={x.ndim}")
+
+
+def window_background_2d(
+    raw_w: np.ndarray,   # (Tw,Z,Y,X) or (Tw,Y,X)
+    f0: np.ndarray,
+    mode: str
+) -> np.ndarray:
+    """
+    Build a 2D background image representative of the window.
+
+    mode:
+      - mean: caller should pass overall mean image; here we return None (not used)
+      - win_raw_mip: MIP over Z per frame, then mean over time
+      - win_dff_maxabs: max over time of abs(ΔF/F) after Z-MIP (recommended)
+      - win_dff_max: max over time of ΔF/F after Z-MIP
+    """
+    if mode == "win_raw_mip":
+        if raw_w.ndim == 4:
+            raw2 = np.nanmax(raw_w, axis=1)  # (Tw,Y,X)
+        else:
+            raw2 = raw_w  # (Tw,Y,X)
+        return np.nanmean(raw2.astype(np.float32), axis=0)
+
+    # ΔF/F-based backgrounds
+    dff_w = dff_from_raw_window(raw_w, f0)  # (Tw, Z,Y,X) or (Tw,Y,X)
+    if dff_w.ndim == 4:
+        dff2 = np.nanmax(dff_w, axis=1)  # (Tw,Y,X)
+    else:
+        dff2 = dff_w  # (Tw,Y,X)
+
+    if mode == "win_dff_maxabs":
+        return np.nanmax(np.abs(dff2.astype(np.float32)), axis=0)
+
+    if mode == "win_dff_max":
+        return np.nanmax(dff2.astype(np.float32), axis=0)
+
+    raise ValueError(f"Unknown preview_bg mode: {mode}")
 
 
 def plot_preview(
     out_png: Path,
-    mean_img: np.ndarray,
+    bg2d: np.ndarray,
     seed_mask: np.ndarray,
     cand_mask: Optional[np.ndarray],
-    seed_trace: np.ndarray,
-    cand_trace_window: Optional[np.ndarray],
+    seed_trace_evt: np.ndarray,
     t0: int,
     t1: int,
+    cand_trace_window: Optional[np.ndarray],
     title: str,
 ) -> None:
     out_png.parent.mkdir(parents=True, exist_ok=True)
 
-    mean_m = mip(mean_img)
-    seed_m = mip(seed_mask.astype(np.uint8))
-    cand_m = mip(cand_mask.astype(np.uint8)) if cand_mask is not None else None
+    seed_m = to_2d_mip_over_z(seed_mask.astype(np.uint8))
+    cand_m = to_2d_mip_over_z(cand_mask.astype(np.uint8)) if cand_mask is not None else None
 
     fig = plt.figure(figsize=(12, 4))
 
     ax1 = fig.add_subplot(1, 3, 1)
-    ax1.imshow(mean_m, cmap="gray")
-    ax1.set_title("Mean image (MIP)")
+    ax1.imshow(bg2d, cmap="gray")
+    ax1.set_title("Background (preview)")
     ax1.axis("off")
 
     ax2 = fig.add_subplot(1, 3, 2)
-    ax2.imshow(mean_m, cmap="gray")
+    ax2.imshow(bg2d, cmap="gray")
     ax2.contour(seed_m > 0, levels=[0.5])
     if cand_m is not None:
         ax2.contour(cand_m > 0, levels=[0.5])
@@ -541,11 +574,11 @@ def plot_preview(
     ax2.axis("off")
 
     ax3 = fig.add_subplot(1, 3, 3)
-    ax3.plot(seed_trace, label="seed")
+    ax3.plot(seed_trace_evt, label="seed (evt)")
     ax3.axvspan(t0, t1 - 1, alpha=0.2)
 
     if cand_trace_window is not None:
-        tmp = np.full_like(seed_trace, np.nan, dtype=np.float32)
+        tmp = np.full_like(seed_trace_evt, np.nan, dtype=np.float32)
         tmp[t0:t1] = cand_trace_window.astype(np.float32, copy=False)
         ax3.plot(tmp, label="candidate (window)")
 
@@ -589,7 +622,7 @@ def main():
 
     # Mode
     ap.add_argument("--mode", type=str, default="event", choices=["event", "mask", "both"])
-    ap.add_argument("--regress_global", action="store_true", help="Regress out global tissue ΔF/F before correlation")
+    ap.add_argument("--regress_global", action="store_true", help="Regress out global tissue ΔF/F for correlation maps")
 
     # Event detection
     ap.add_argument("--event_z", type=float, default=2.5)
@@ -597,6 +630,8 @@ def main():
     ap.add_argument("--event_pre", type=int, default=10)
     ap.add_argument("--event_post", type=int, default=20)
     ap.add_argument("--max_events_per_seed", type=int, default=15)
+    ap.add_argument("--event_smooth_sigma", type=float, default=1.0,
+                    help="Gaussian smoothing sigma (frames) for event detection; 0 disables")
 
     # Corr tiling
     ap.add_argument("--tile_y", type=int, default=64)
@@ -610,6 +645,11 @@ def main():
 
     # Runtime / chunking
     ap.add_argument("--chunk_t", type=int, default=50, help="Time chunk for trace computations / mean image")
+
+    # Preview background
+    ap.add_argument("--preview_bg", type=str, default="win_dff_maxabs",
+                    choices=["mean", "win_raw_mip", "win_dff_maxabs", "win_dff_max"],
+                    help="Background image type for previews. win_dff_maxabs recommended.")
 
     args = ap.parse_args()
 
@@ -659,8 +699,8 @@ def main():
     )
     save_tiff(out / "masks" / "f0.tif", f0.astype(np.float32), compress=True)
 
-    # Mean image (for previews and tissue mask)
-    print("[Compute] mean image over time (for tissue mask + previews)")
+    # Mean image (saved for QC, and used if preview_bg=mean)
+    print("[Compute] mean image over time (for tissue mask + QC)")
     mean_img = mean_image_over_time(raw, chunk_t=args.chunk_t)
     save_tiff(out / "qc" / "mean_image.tif", mean_img.astype(np.float32), compress=True)
 
@@ -676,7 +716,7 @@ def main():
     save_tiff(out / "masks" / "union_mask.tif", union_mask.astype(np.uint8), compress=True)
     save_tiff(out / "masks" / "tissue_mask.tif", tissue.astype(np.uint8), compress=True)
 
-    # Global trace (optional)
+    # Global trace (optional, for correlation regression)
     global_trace = None
     if args.regress_global:
         print("[Compute] global tissue ΔF/F trace")
@@ -701,10 +741,15 @@ def main():
 
         seed_mask = load_mask_tiff(seed_path)
 
-        # Seed trace (ΔF/F) over full run
-        seed_trace = mask_trace_from_raw(raw, seed_mask, f0, chunk_t=args.chunk_t)
+        # ---- Seed trace for EVENT detection (do NOT regress global here) ----
+        seed_trace_evt = mask_trace_from_raw(raw, seed_mask, f0, chunk_t=args.chunk_t)
+        if args.event_smooth_sigma and args.event_smooth_sigma > 0:
+            seed_trace_evt = ndimage.gaussian_filter1d(seed_trace_evt.astype(np.float32), args.event_smooth_sigma)
+
+        # ---- Seed trace used for CORRELATION maps (optionally regress global) ----
+        seed_trace_corr = seed_trace_evt.astype(np.float32, copy=True)
         if args.regress_global and global_trace is not None:
-            seed_trace = regress_out(seed_trace, global_trace)
+            seed_trace_corr = regress_out(seed_trace_corr, global_trace)
 
         # Determine windows
         windows: List[Tuple[str, int, int, Optional[int]]] = []
@@ -713,7 +758,7 @@ def main():
             windows.append(("mask_full", 0, T, None))
 
         if args.mode in ("event", "both"):
-            peaks = detect_events_simple(seed_trace, z_thresh=args.event_z, min_sep_frames=args.event_min_sep)
+            peaks = detect_events_simple(seed_trace_evt, z_thresh=args.event_z, min_sep_frames=args.event_min_sep)
             if len(peaks) > args.max_events_per_seed:
                 peaks = peaks[:args.max_events_per_seed]
             print(f"  Detected events: {len(peaks)} (cap={args.max_events_per_seed})")
@@ -728,7 +773,7 @@ def main():
                 raw=raw,
                 f0=f0,
                 tissue_mask=tissue,
-                seed_trace_full=seed_trace,
+                seed_trace_full_for_corr=seed_trace_corr,
                 t0=t0,
                 t1=t1,
                 regress_global=args.regress_global,
@@ -746,16 +791,23 @@ def main():
             n_cand = int(labeled.max())
             print(f"  [Cands] {n_cand} components")
 
+            # Precompute window background for previews
+            if args.preview_bg == "mean":
+                bg2d = to_2d_mip_over_z(mean_img.astype(np.float32))
+            else:
+                raw_w = raw[t0:t1].astype(np.float32, copy=False)
+                bg2d = window_background_2d(raw_w, f0, args.preview_bg)
+
             if n_cand == 0:
                 plot_preview(
                     out_png=out / "previews" / seed_name / win_name / "seed_only.png",
-                    mean_img=mean_img,
+                    bg2d=bg2d,
                     seed_mask=seed_mask,
                     cand_mask=None,
-                    seed_trace=seed_trace,
-                    cand_trace_window=None,
+                    seed_trace_evt=seed_trace_evt,
                     t0=t0,
                     t1=t1,
+                    cand_trace_window=None,
                     title=f"{seed_name} | {win_name} | seed only",
                 )
                 continue
@@ -766,11 +818,12 @@ def main():
                 if not cand_mask.any():
                     continue
 
-                # Candidate trace only for the window (fast)
+                # Candidate trace only for window
                 idx = np.where(cand_mask)
                 raw_w = raw[t0:t1].astype(np.float32, copy=False)
-                dff_w = dff_from_raw_window(raw_w, f0)
+                dff_w = dff_from_raw_window(raw_w, f0)  # (Tw, ...)
                 cand_trace_w = np.array([np.nanmean(dff_w[k][idx]) for k in range(dff_w.shape[0])], dtype=np.float32)
+
                 if args.regress_global and global_trace is not None:
                     cand_trace_w = regress_out(cand_trace_w, global_trace[t0:t1])
 
@@ -779,13 +832,13 @@ def main():
                 prev_path = out / "previews" / seed_name / win_name / f"cand_{ci:03d}.png"
                 plot_preview(
                     out_png=prev_path,
-                    mean_img=mean_img,
+                    bg2d=bg2d,
                     seed_mask=seed_mask,
                     cand_mask=cand_mask,
-                    seed_trace=seed_trace,
-                    cand_trace_window=cand_trace_w,
+                    seed_trace_evt=seed_trace_evt,
                     t0=t0,
                     t1=t1,
+                    cand_trace_window=cand_trace_w,
                     title=f"{seed_name} | {win_name} | cand {ci:03d}",
                 )
 
@@ -836,3 +889,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
