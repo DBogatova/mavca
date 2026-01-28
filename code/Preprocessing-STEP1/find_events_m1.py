@@ -1,336 +1,232 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 """
-Global Ca outside masks (union) vs global Ca over full volume — ONE RUN.
+Module 1: Initial Processing of Calcium Imaging Data
 
-- Loads Ca raw stack (T,Z,Y,X) from RAW_STACK_PATH (prefers preprocessed/raw_clean.tif)
-- Applies Y_CROP exactly like Module 1
-- Builds a union mask from MASK_FOLDER (masks already generated AFTER cropping)
-- Computes per-voxel F0 from last F0_NFRAMES frames (memory-friendly)
-- Computes two global ΔF/F traces chunked in time:
-    1) global_all(t): mean across all voxels
-    2) global_outside(t): mean across voxels outside union mask
-- Cleans artifacts, smooths traces, overlays plot, saves outputs
-
-Dependencies: numpy, matplotlib, scipy, tifffile
+This script performs the initial processing of raw calcium imaging data:
+1. Loads the raw stack
+2. Normalizes each voxel
+3. Subtracts mean per time frame
+4. Applies Gaussian smoothing
+5. Detects active frames based on activity threshold
+6. Groups consecutive active frames into events
+7. Saves processed data and visualizations
 """
 
-from __future__ import annotations
-
+import tifffile
 import numpy as np
-import matplotlib.pyplot as plt
 from pathlib import Path
-from scipy.ndimage import gaussian_filter1d
+import matplotlib.pyplot as plt
+import matplotlib as mpl
+from scipy.ndimage import gaussian_filter
+from scipy.ndimage import uniform_filter1d
+from scipy.signal import find_peaks
+import gc
 
-try:
-    import tifffile
-except ImportError:
-    tifffile = None
+# Set matplotlib font
+mpl.rcParams['font.family'] = 'CMU Serif'
 
-
-# =================
-# ===== CONFIG =====
-# =================
+# === CONFIGURATION ===
 DATE = "2025-12-02"
 MOUSE = "rbp4cre_136_phpeb"
 RUN = "run4"
 
-FRAME_RATE = 5.0   # Hz
-CHUNK_T = 118      # time frames per chunk (memory efficiency)
-
-Y_CROP = 3         # IMPORTANT: same as Module 1 (crop Y by 3 px on each side)
-
-# ΔF/F baseline (per-voxel) computed from last N frames
-F0_NFRAMES = 30
-EPS = 1e-8
-
-# Trace cleanup / smoothing (same style as your pipeline)
-ARTIFACT_Z = -0.5   # replace ΔF/F < ARTIFACT_Z with 0 (before smoothing)
-SMOOTH_SIGMA = 0.5  # gaussian_filter1d sigma (in frames)
-
-# Output
-SAVE_FIG = True
-SHOW_FIG = True
-FIG_DPI = 200
+CROP_RADIUS = 5  # Number of frames to include before/after each event
+START_THRESHOLD = 3.0  # Z-score threshold for event start
+END_THRESHOLD = 1.0   # Z-score threshold for event end (hysteresis)
+MAX_FRAME_GAP = 2     # Maximum gap between frames to group into same event
+Y_CROP = 3            # Number of pixels to crop from bottom of Y dimension
+BASELINE_PERCENTILE = 10  # Percentile for rolling baseline
+BASELINE_WINDOW = 600     # Window size for rolling baseline (frames) - 60s at 10Hz
+NOISE_WINDOW = 100        # Window size for MAD noise estimation (frames) - 10s at 10Hz
+MIN_EVENT_DURATION = 3    # Minimum event duration in frames
+MIN_PROMINENCE = 1.0      # Minimum prominence in MAD units
 
 
-# ================
-# ===== PATHS =====
-# ================
-PROJECT_ROOT = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025")
-BASE = PROJECT_ROOT / "scape-data" / DATE / MOUSE / RUN
+# === PATHS ===
+BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/data") / DATE / MOUSE / RUN
+RAW_STACK_PATH = BASE / "raw" / f"runB_run4_reslice_test_mc.tif"
+PREPROCESSED_FOLDER = BASE / "preprocessed"
+PREPROCESSED_FOLDER.mkdir(exist_ok=True)
 
-RAW_CLEAN_PATH = BASE / "preprocessed" / "raw_clean.tif"
-RAW_ORIG_PATH = BASE / "raw" / f"runA_{RUN}_{MOUSE}_green.tif"   # adjust if needed
-RAW_STACK_PATH = RAW_CLEAN_PATH if RAW_CLEAN_PATH.exists() else RAW_ORIG_PATH
+# === OUTPUT PATHS ===
+NORM_STACK_PATH = PREPROCESSED_FOLDER / "stack_voxel_norm_mean_sub.tif"
+SMOOTHED_STACK_PATH = PREPROCESSED_FOLDER / "stack_smoothed.tif"
+ACTIVE_FRAMES_PATH = PREPROCESSED_FOLDER / "active_frames.npy"
+PREVIEW_FOLDER = PREPROCESSED_FOLDER / "active_frame_previews"
+PREVIEW_FOLDER.mkdir(exist_ok=True)
+EVENT_CROPS_FOLDER = PREPROCESSED_FOLDER / "event_crops"
+EVENT_CROPS_FOLDER.mkdir(exist_ok=True)
 
-MASK_FOLDER = BASE / "labelmaps_curated_dynamic"  # masks already produced AFTER Y-crop
-
-TRACE_FOLDER = BASE / "traces"
-TRACE_FOLDER.mkdir(exist_ok=True)
-
-OUT_PNG = TRACE_FOLDER / "global_ca_all_vs_outside_masks.png"
-OUT_NPY = TRACE_FOLDER / "global_ca_all_vs_outside_masks.npy"
-
-
-# ==========================
-# ===== I/O helpers =========
-# ==========================
-
-def match_stack_to_mask_shape(stack_tzyx: np.ndarray, mask_zyx: np.ndarray) -> np.ndarray:
+def group_consecutive(frames, gap=1):
     """
-    Adjust stack spatial dims to match mask (Z,Y,X) by cropping ONLY.
-    Handles the common case: stack Y slightly larger than mask Y.
+    Group consecutive frame numbers into events, allowing for small gaps.
+    
+    Args:
+        frames: Array of frame numbers
+        gap: Maximum allowed gap between consecutive frames to be in same group
+        
+    Returns:
+        List of lists, where each inner list contains frame numbers for one event
     """
-    T, Zs, Ys, Xs = stack_tzyx.shape
-    Zm, Ym, Xm = mask_zyx.shape
-
-    if (Zs, Xs) != (Zm, Xm):
-        raise ValueError(f"Z/X mismatch: stack (Z,X)=({Zs},{Xs}) vs mask ({Zm},{Xm})")
-
-    if Ys == Ym:
-        return stack_tzyx
-
-    if Ys < Ym:
-        raise ValueError(f"Stack Y smaller than mask Y: stack Y={Ys} mask Y={Ym} (cannot fix by cropping)")
-
-    # crop amount
-    dy = Ys - Ym
-
-    # center-crop in Y (robust default)
-    top = dy // 2
-    bottom = dy - top
-    return stack_tzyx[:, :, top:Ys - bottom, :]
-
-def _require_tifffile():
-    if tifffile is None:
-        raise ImportError("tifffile is required. Install with: pip install tifffile")
-
-
-def load_stack_memmap(path: Path) -> np.ndarray:
-    """Memory-map a TIFF stack."""
-    _require_tifffile()
-    if not path.exists():
-        raise FileNotFoundError(f"Stack not found: {path}")
-    return tifffile.memmap(str(path))
-
-
-def ensure_tzyx(stack: np.ndarray) -> np.ndarray:
-    """Ensure stack is (T,Z,Y,X)."""
-    if stack.ndim != 4:
-        raise ValueError(f"Expected 4D stack (T,Z,Y,X). Got shape={stack.shape}")
-    return stack
-
-
-def apply_y_crop_stack(stack_tzyx: np.ndarray, y_crop: int) -> np.ndarray:
-    """Apply symmetric Y crop to (T,Z,Y,X)."""
-    if y_crop is None or y_crop <= 0:
-        return stack_tzyx
-    return stack_tzyx[:, :, y_crop:-y_crop, :]
-
-
-def discover_mask_files(mask_folder: Path) -> list[Path]:
-    if not mask_folder.exists():
-        raise FileNotFoundError(f"MASK_FOLDER not found: {mask_folder}")
-
-    exts = (".npy", ".npz", ".tif", ".tiff")
-    files = sorted([p for p in mask_folder.iterdir() if p.is_file() and p.suffix.lower() in exts])
-    if not files:
-        raise FileNotFoundError(f"No mask files found in: {mask_folder}")
-    return files
-
-
-def load_mask(path: Path) -> np.ndarray:
-    """
-    Load a mask volume.
-    Returns boolean mask (Z,Y,X). Nonzero treated as True.
-    """
-    suf = path.suffix.lower()
-    if suf == ".npy":
-        arr = np.load(path, mmap_mode="r")
-    elif suf == ".npz":
-        npz = np.load(path)
-        if len(npz.files) == 1:
-            arr = npz[npz.files[0]]
-        elif "arr_0" in npz.files:
-            arr = npz["arr_0"]
+    if len(frames) == 0:
+        return []
+        
+    groups = []
+    group = [frames[0]]
+    
+    for f in frames[1:]:
+        if f - group[-1] <= gap:
+            group.append(f)
         else:
-            raise ValueError(f"NPZ has multiple arrays; ambiguous. Keys: {npz.files}")
-    elif suf in (".tif", ".tiff"):
-        _require_tifffile()
-        arr = tifffile.imread(str(path))
-    else:
-        raise ValueError(f"Unsupported mask type: {path}")
+            groups.append(group)
+            group = [f]
+            
+    groups.append(group)
+    return groups
 
-    if arr.ndim == 4:
-        # If any time-resolved labelmaps exist, union over time
-        arr = np.any(arr != 0, axis=0)
-
-    if arr.ndim != 3:
-        raise ValueError(f"Mask must be 3D (Z,Y,X) (or 4D collapsible). Got {arr.shape} from {path}")
-
-    return (arr != 0)
-
-
-def build_union_mask(mask_files: list[Path], target_zyx: tuple[int, int, int]) -> np.ndarray:
-    """Union all masks (already aligned/cropped)."""
-    union = np.zeros(target_zyx, dtype=bool)
-    for f in mask_files:
-        m = load_mask(f)
-        if m.shape != target_zyx:
-            raise ValueError(
-                f"Mask shape mismatch for {f}\n"
-                f"  mask: {m.shape}\n"
-                f"  expected: {target_zyx}\n"
-                f"Since masks are generated after cropping, DO NOT crop masks here."
-            )
-        union |= m
-    return union
-
-
-# ==========================================
-# ===== Core computation (chunked) ==========
-# ==========================================
-def compute_f0_from_last_frames(stack_tzyx: np.ndarray, nframes: int) -> np.ndarray:
-    """Per-voxel F0 as mean of last nframes. Returns (Z,Y,X) float32."""
-    T = stack_tzyx.shape[0]
-    n = int(min(max(1, nframes), T))
-    last = np.asarray(stack_tzyx[T - n:T], dtype=np.float32)
-    f0 = np.nanmean(last, axis=0).astype(np.float32)
-    return f0
-
-
-def compute_traces_chunked(stack_tzyx: np.ndarray, union_mask_zyx: np.ndarray, f0_zyx: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Compute global_all(t) and global_outside(t) in chunks without storing full ΔF/F stack.
-    """
-    T, Z, Y, X = stack_tzyx.shape
-    outside = ~union_mask_zyx
-    outside_flat = outside.reshape(-1)
-
-    global_all = np.zeros(T, dtype=np.float32)
-    global_out = np.zeros(T, dtype=np.float32)
-
-    for t0 in range(0, T, CHUNK_T):
-        t1 = min(T, t0 + CHUNK_T)
-        chunk = np.asarray(stack_tzyx[t0:t1], dtype=np.float32)
-
-        # ΔF/F
-        dff = (chunk - f0_zyx[None, ...]) / (f0_zyx[None, ...] + EPS)
-
-        # Artifact clamp
-        if ARTIFACT_Z is not None:
-            dff[dff < ARTIFACT_Z] = 0.0
-
-        # Means
-        dff2 = dff.reshape(dff.shape[0], -1)  # (tchunk, N)
-        global_all[t0:t1] = np.nanmean(dff2, axis=1)
-        global_out[t0:t1] = np.nanmean(dff2[:, outside_flat], axis=1)
-
-        print(f"Processed frames {t0}..{t1-1}")
-
-    return global_all, global_out
-
-
-# ======================
-# ===== Plotting =======
-# ======================
-def plot_overlay(time_s: np.ndarray, global_all: np.ndarray, global_out: np.ndarray, out_png: Path | None):
-    finite = np.isfinite(global_all) & np.isfinite(global_out)
-    corr = np.corrcoef(global_all[finite], global_out[finite])[0, 1] if finite.sum() > 3 else np.nan
-
-    plt.figure(figsize=(11, 4.2))
-    plt.plot(time_s, global_all, lw=2, label="Global Ca (all voxels)")
-    plt.plot(time_s, global_out, lw=2, alpha=0.85, label="Global Ca (outside masks)")
-    plt.xlabel("Time (s)")
-    plt.ylabel("ΔF/F")
-    plt.title(f"{DATE} | {MOUSE} | {RUN}  (corr={corr:.2f})")
-    plt.legend()
-    plt.tight_layout()
-
-    if out_png is not None:
-        out_png.parent.mkdir(exist_ok=True, parents=True)
-        plt.savefig(out_png, dpi=FIG_DPI)
-        print(f"Saved: {out_png}")
-
-    if SHOW_FIG:
-        plt.show()
-    else:
-        plt.close()
-
-
-# =================
-# ===== Main ======
-# =================
 def main():
-    print("\n=== Loading stack ===")
-    stack = load_stack_memmap(RAW_STACK_PATH)
-    stack = ensure_tzyx(stack)
-    print(f"Stack: {RAW_STACK_PATH}")
-    print(f"Original shape: {stack.shape}  (T,Z,Y,X)")
+    # === LOAD RAW STACK ===
+    
+    print("Loading stack...")
+    stack = tifffile.imread(RAW_STACK_PATH).astype(np.float32)
+    stack = stack[:, :, :-Y_CROP, :]  # Crop Y dimension
+    print(f"Shape: {stack.shape} (T, Z, Y, X)")
 
-    # Apply Y_CROP exactly like Module 1
-    if Y_CROP and Y_CROP > 0:
-        stack = apply_y_crop_stack(stack, Y_CROP)
-        print(f"After Y_CROP={Y_CROP}: {stack.shape}  (T,Z,Y,X)")
+    # === NORMALIZE EACH VOXEL ===
+    print("Normalizing voxels...")
+    vmin = stack.min(axis=0, keepdims=True)
+    vmax = stack.max(axis=0, keepdims=True)
+    stack_norm = (stack - vmin) / (vmax - vmin + 1e-6)
+    del stack, vmin, vmax
+    gc.collect()
 
-    T, Z, Y, X = stack.shape
+    # === SUBTRACT MEAN PER TIME FRAME ===
+    print("Subtracting mean per time frame...")
+    frame_mean = stack_norm.mean(axis=(1, 2, 3), keepdims=True)
+    stack_norm -= frame_mean
+    del frame_mean
+    gc.collect()
 
-    print("\n=== Building union mask (no extra cropping) ===")
-    mask_files = discover_mask_files(MASK_FOLDER)
-    print(f"Found {len(mask_files)} mask files in {MASK_FOLDER}")
+    # === GAUSSIAN SMOOTHING ===
+    print("Applying Gaussian smoothing...")
+    stack_smooth = gaussian_filter(stack_norm, sigma=1)
+    ZS = np.arange(stack_smooth.shape[1])  # Use all Z planes
 
-    union = build_union_mask(mask_files, target_zyx=(Z, Y, X))
-    print(f"Union mask coverage: {union.mean()*100:.2f}% of voxels")
+    # === DETRENDING AND EVENT DETECTION ===
+    print("Computing rolling baseline for multiplicative detrending...")
+    frame_scores = stack_smooth.max(axis=(1, 2, 3))
+    
+    # Pad signal for edge handling
+    padded_scores = np.pad(frame_scores, BASELINE_WINDOW//2, mode='reflect')
+    
+    # Compute rolling percentile baseline with padding
+    baseline = np.zeros_like(frame_scores)
+    half_window = BASELINE_WINDOW // 2
+    
+    for i in range(len(frame_scores)):
+        start = i  # Already padded
+        end = i + BASELINE_WINDOW
+        baseline[i] = np.percentile(padded_scores[start:end], BASELINE_PERCENTILE)
+    
+    # Multiplicative detrending: F_corr = F/B - 1
+    f_corr = (frame_scores / (baseline + 1e-6)) - 1
+    
+    # Compute rolling MAD for robust noise estimation
+    mad_values = np.zeros_like(f_corr)
+    half_noise_window = NOISE_WINDOW // 2
+    
+    for i in range(len(f_corr)):
+        start = max(0, i - half_noise_window)
+        end = min(len(f_corr), i + half_noise_window + 1)
+        window_data = f_corr[start:end]
+        median_val = np.median(window_data)
+        mad_values[i] = np.median(np.abs(window_data - median_val))
+    
+    # Compute robust z-scores
+    median_f_corr = np.median(f_corr)
+    z_scores = (f_corr - median_f_corr) / (1.4826 * mad_values + 1e-6)
+    
+    # Detect events with hysteresis thresholding
+    print("Detecting events with hysteresis thresholding...")
+    active_frames = []
+    in_event = False
+    event_start = None
+    
+    for i, z in enumerate(z_scores):
+        if not in_event and z > START_THRESHOLD:
+            in_event = True
+            event_start = i
+        elif in_event and z < END_THRESHOLD:
+            if event_start is not None and (i - event_start) >= MIN_EVENT_DURATION:
+                active_frames.extend(range(event_start, i + 1))
+            in_event = False
+            event_start = None
+    
+    # Handle case where event extends to end of recording
+    if in_event and event_start is not None:
+        if (len(z_scores) - event_start) >= MIN_EVENT_DURATION:
+            active_frames.extend(range(event_start, len(z_scores)))
+    
+    active_frames = np.array(active_frames)
+    np.save(ACTIVE_FRAMES_PATH, active_frames)
+    print(f"Detected {len(active_frames)} active frames using robust method.")
 
-    # Sanity check
-    assert union.shape == stack.shape[1:], f"Mask {union.shape} != stack spatial {stack.shape[1:]}"
+    # === ACTIVITY TIMELINE PLOT ===
+    print("Creating activity timeline plot...")
+    fig, axes = plt.subplots(3, 1, figsize=(12, 9), sharex=True)
+    
+    # Top: Raw signal with baseline
+    axes[0].plot(frame_scores, label='Raw signal', alpha=0.7)
+    axes[0].plot(baseline, label='Rolling baseline', color='orange')
+    axes[0].set_ylabel("Max activity")
+    axes[0].legend()
+    axes[0].set_title("Raw Signal and Rolling Baseline")
+    
+    # Middle: Multiplicatively corrected signal
+    axes[1].plot(f_corr, label='F/B - 1', color='green')
+    axes[1].set_ylabel("Corrected ΔF/F")
+    axes[1].legend()
+    axes[1].set_title("Multiplicatively Detrended Signal")
+    axes[1].axhline(0, color='black', linestyle='-', alpha=0.3)
+    
+    # Bottom: Z-scores with detections
+    axes[2].plot(z_scores, label='Z-score', color='blue')
+    if len(active_frames) > 0:
+        axes[2].scatter(active_frames, z_scores[active_frames], color='red', s=1, label='Detected events')
+    axes[2].axhline(START_THRESHOLD, color='red', linestyle='--', label=f'Start threshold ({START_THRESHOLD})')
+    axes[2].axhline(END_THRESHOLD, color='orange', linestyle='--', label=f'End threshold ({END_THRESHOLD})')
+    axes[2].axhline(0, color='black', linestyle='-', alpha=0.3)
+    axes[2].set_xlabel("Frame")
+    axes[2].set_ylabel("Robust Z-score")
+    axes[2].legend()
+    axes[2].set_title("Robust Z-scores with Hysteresis Detection")
+    
+    plt.tight_layout()
+    plt.savefig(PREPROCESSED_FOLDER / "activity_timeline.pdf", format='pdf')
+    plt.close()
 
-    print("\n=== Computing F0 (last frames) ===")
-    f0 = compute_f0_from_last_frames(stack, nframes=F0_NFRAMES)
-    print(f"F0 shape: {f0.shape}")
+    # === GROUP CONSECUTIVE FRAMES INTO EVENTS ===
+    print("Grouping consecutive frames into events...")
+    event_groups = group_consecutive(active_frames, gap=MAX_FRAME_GAP)
+    print(f"Grouped into {len(event_groups)} events.")
 
-    print("\n=== Computing traces (chunked) ===")
-    global_all, global_out = compute_traces_chunked(stack, union, f0)
+    # === SAVE EVENT CROPS ===
+    print("Saving event crops...")
+    T, Z, Y, X = stack_smooth.shape
+    for i, group in enumerate(event_groups):
+        t_start = max(group[0] - CROP_RADIUS, 0)
+        t_end = min(group[-1] + CROP_RADIUS + 1, T)
+        crop = stack_smooth[t_start:t_end]
+        tifffile.imwrite(EVENT_CROPS_FOLDER / f"event_group_{i:04d}.tif", crop.astype(np.float32))
 
-    print("\n=== Smoothing traces ===")
-    if SMOOTH_SIGMA and SMOOTH_SIGMA > 0:
-        global_all_s = gaussian_filter1d(global_all, sigma=SMOOTH_SIGMA)
-        global_out_s = gaussian_filter1d(global_out, sigma=SMOOTH_SIGMA)
-    else:
-        global_all_s = global_all
-        global_out_s = global_out
+    print(f"Saved {len(event_groups)} grouped event crops to:\n{EVENT_CROPS_FOLDER}")
 
-    time_s = np.arange(T, dtype=np.float32) / float(FRAME_RATE)
+    # === SAVE STACKS ===
+    print("Saving processed stacks...")
+    tifffile.imwrite(NORM_STACK_PATH, stack_norm.astype(np.float32))
+    tifffile.imwrite(SMOOTHED_STACK_PATH, stack_smooth.astype(np.float32))
 
-    print("\n=== Saving outputs ===")
-    out = {
-        "time_s": time_s,
-        "global_all": global_all,
-        "global_outside": global_out,
-        "global_all_smooth": global_all_s,
-        "global_outside_smooth": global_out_s,
-        "meta": {
-            "DATE": DATE,
-            "MOUSE": MOUSE,
-            "RUN": RUN,
-            "RAW_STACK_PATH": str(RAW_STACK_PATH),
-            "MASK_FOLDER": str(MASK_FOLDER),
-            "FRAME_RATE": FRAME_RATE,
-            "CHUNK_T": CHUNK_T,
-            "Y_CROP": Y_CROP,
-            "F0_NFRAMES": F0_NFRAMES,
-            "ARTIFACT_Z": ARTIFACT_Z,
-            "SMOOTH_SIGMA": SMOOTH_SIGMA,
-        }
-    }
-    np.save(OUT_NPY, out, allow_pickle=True)
-    print(f"Saved: {OUT_NPY}")
-
-    print("\n=== Plotting overlay (smoothed) ===")
-    plot_overlay(time_s, global_all_s, global_out_s, OUT_PNG if SAVE_FIG else None)
-
-    print("\nDone.")
-
+    print("Module 1 processing complete!")
 
 if __name__ == "__main__":
     main()
