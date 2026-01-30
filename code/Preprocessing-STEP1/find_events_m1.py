@@ -26,13 +26,12 @@ import gc
 mpl.rcParams['font.family'] = 'CMU Serif'
 
 # === CONFIGURATION ===
-DATE = "2025-12-02"
-MOUSE = "rbp4cre_136_phpeb"
-RUN = "run4"
-
+DATE = "2025-12-25"
+MOUSE = "rAi162_phpeb"
+RUN = "run1"
 CROP_RADIUS = 5  # Number of frames to include before/after each event
-START_THRESHOLD = 3.0  # Z-score threshold for event start
-END_THRESHOLD = 1.0   # Z-score threshold for event end (hysteresis)
+START_THRESHOLD = 0.5  # Z-score threshold for event start
+END_THRESHOLD = -0.5   # Z-score threshold for event end (hysteresis)
 MAX_FRAME_GAP = 2     # Maximum gap between frames to group into same event
 Y_CROP = 3            # Number of pixels to crop from bottom of Y dimension
 BASELINE_PERCENTILE = 10  # Percentile for rolling baseline
@@ -43,8 +42,8 @@ MIN_PROMINENCE = 1.0      # Minimum prominence in MAD units
 
 
 # === PATHS ===
-BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/data") / DATE / MOUSE / RUN
-RAW_STACK_PATH = BASE / "raw" / f"runB_run4_reslice_test_mc.tif"
+BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
+RAW_STACK_PATH = BASE / "raw" / f"runA_run1_rAi162_phpeb_green.tif"
 PREPROCESSED_FOLDER = BASE / "preprocessed"
 PREPROCESSED_FOLDER.mkdir(exist_ok=True)
 
@@ -54,7 +53,7 @@ SMOOTHED_STACK_PATH = PREPROCESSED_FOLDER / "stack_smoothed.tif"
 ACTIVE_FRAMES_PATH = PREPROCESSED_FOLDER / "active_frames.npy"
 PREVIEW_FOLDER = PREPROCESSED_FOLDER / "active_frame_previews"
 PREVIEW_FOLDER.mkdir(exist_ok=True)
-EVENT_CROPS_FOLDER = PREPROCESSED_FOLDER / "event_crops"
+EVENT_CROPS_FOLDER = PREPROCESSED_FOLDER / "event_crops_test"
 EVENT_CROPS_FOLDER.mkdir(exist_ok=True)
 
 def group_consecutive(frames, gap=1):
@@ -230,3 +229,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
