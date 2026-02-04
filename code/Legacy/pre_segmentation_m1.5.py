@@ -63,12 +63,12 @@ TOP_Z_PLANES = 15        # None to use all Z; 15 often works well for apicals
 
 # Optional: very light MIP smoothing for stability
 # Set to 0.0 if you want maximum crispness
-MIP_SMOOTH_SIGMA = 1.0
+MIP_SMOOTH_SIGMA = 0.0
 
 # ---- selection ----
 PEAK_HALF_WINDOW = 6     # choose candidates from [peak-6, peak+6]
-TOP_K = 2                # how many frames to save per crop
-MIN_SEP = 2              # enforce spacing between selected frames
+TOP_K = 3                # how many frames to save per crop
+MIN_SEP = 1              # enforce spacing between selected frames
 
 # ---- PNG visualization (contrast stretch) ----
 PNG_P_LO = 1.0           # lower percentile for display scaling
