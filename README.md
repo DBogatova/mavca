@@ -11,54 +11,76 @@ Data is organized by date, mouse, and run in the following structure:
 data/
 └── yyyy-mm-dd/
     └── mouse_name/
-        └── run4_name/
+        └── run_name/
             ├── raw/                           # Raw TIFFs from microscope
-            │   ├── runB_run4_reslice-crop.tif                    # 4D raw stack (T,Z,Y,X)
-            │   └── runB_run4_reslice-crop_processed.tif          # 3D MIP for motion detection
-            ├── preprocessed/                  # Motion-corrected data (STEP 1 output)
+            │   ├── runA_run1_reslice-crop.tif                    # 4D raw stack (T,Z,Y,X)
+            │   └── runA_run1_reslice-crop_processed.tif          # 3D MIP for motion detection
+            ├── preprocessed/                  # Motion-corrected data (M1 output)
             │   ├── raw_clean.tif             # Motion-filtered 4D stack
-            │   ├── dff_stack.tif             # ΔF/F stack from Module 1
             │   ├── event_crops/              # Selected mini-stacks
             │   ├── excluded_frames.npy       # Motion frame indices
-            │   └── frame_mapping.npy         # Original→clean frame mapping
-            ├── labelmaps/                     # Initial dendrite masks (STEP 2 output)
-            ├── labelmaps_curated_dynamic/     # Curated masks (STEP 2 output)
-            ├── traces/                        # ΔF/F trace data (STEP 3 output)
+            │   ├── frame_mapping.npy         # Original→clean frame mapping
+            │   └── guides/                   # Optional trunk guides (M2.5)
+            ├── labelmaps/                     # Initial dendrite masks (M2 output)
+            ├── labelmaps_curated_dynamic/     # Curated masks (M3 output)
+            ├── traces/                        # ΔF/F trace data (M4/M5 output)
             │   ├── dff_traces_curated_bgsub.csv
-            │   └── dff_traces_curated_bgsub_smooth.csv
+            │   ├── dff_traces_curated_bgsub_smooth.csv
+            │   ├── depth_analysis_global_ca.png
+            │   └── depth_analysis_data.npy
+            ├── outside_mask_dynamics/         # Spatial dynamics analysis (M5)
+            │   ├── globalCa_umrings.npy
+            │   ├── globalCa_umrings_main.png
+            │   └── globalCa_comparison.png
             ├── trace_previews_curated/        # Individual trace plots
             ├── trace_previews_curated_smooth/ # Smoothed trace plots
-            └── overlays_curated/              # Mask overlays on background
+            └── overlays_curated/              # Mask overlays on background (M6)
 ```
 
 ---
 
 ## 🧩 Pipeline Overview
 
-### STEP 1: Preprocessing & Event Detection
+### Module 1 (M1): Preprocessing & Event Detection
 | Script | Purpose |
 |--------|---------|
-| `remove_motion_frames_simple.py` | Detect and remove motion artifacts from raw 4D stack |
-| `find_events_m1.py` | Compute ΔF/F, detect calcium events, extract mini-stacks |
+| `find_events_m1.py` | Detect motion, compute ΔF/F, detect calcium events, extract mini-stacks |
+| `ach_ca_plots.py` | (Optional) Preview two-channel data for quality control |
 
-### STEP 2: Mask Creation & Curation
+### Module 2 (M2): Initial Mask Creation
 | Script | Purpose |
 |--------|---------|
 | `auto_mask_m2.py` | Segment dendrites from event crops using thresholding + clustering |
+
+### Module 2.5 (M2.5): Optional Mask Refinement
+| Script | Purpose |
+|--------|---------|
+| `mask_guide_m2.5.py` | (Optional) Draw trunk guides on preview PNGs for better segmentation |
+| `auto_mask_m2.py` (re-run) | Re-run with `USE_GUIDES=True` to apply manual guides |
+
+### Module 3 (M3): Mask Curation
+| Script | Purpose |
+|--------|---------|
 | `filter_selected_masks_m3.py` | Interactive curation of masks in Napari with neighbor editing |
 
-### STEP 3: Trace Extraction & Analysis
+### Module 4 (M4): Trace Extraction
 | Script | Purpose |
 |--------|---------|
 | `save_traces_m4.py` | Extract ΔF/F traces from curated masks with background subtraction |
-| `downsample_traces.py` | Apply smoothing and/or decimation to traces |
-| `plot_selected_traces.py` | Generate publication-quality stacked trace plots |
 
-### Visualization & Quality Control
+### Module 5 (M5): Trace Analysis
 | Script | Purpose |
 |--------|---------|
-| `organoid_outline.py` | Create mask overlays on background MIPs (XY/XZ/YZ views) |
-| `remove_trace_artifacts.py` | Remove frames with trace-based motion artifacts |
+| `downsample_traces.py` | Apply smoothing and/or decimation to traces |
+| `plot_selected_traces.py` | Generate publication-quality stacked trace plots |
+| `depth_analysis_plots.py` | Analyze global Ca²⁺ activity by Y-depth (4 layers, bleach-corrected) |
+| `outside_mask_plot.py` | Compare inside vs outside mask dynamics with micron-based rings |
+
+### Module 6 (M6): Visualization
+| Script | Purpose |
+|--------|---------|
+| `create_3d_movie_m6.py` | Create 3D movie visualization of entire recording |
+| `create_3d_movie_chunks_m6.py` | Create 3D movie in chunks (for long recordings) |
 
 ---
 
@@ -83,40 +105,64 @@ with filenames:
 
 ### 3. Run Pipeline
 
-**STEP 1: Motion Correction & Event Detection**
+**Module 1 (M1): Preprocessing & Event Detection**
 ```bash
-# Remove motion artifacts
-python code/Extra/remove_motion_frames_simple.py
-
-# Detect calcium events and create mini-stacks
+# Detect motion, compute ΔF/F, detect calcium events and create mini-stacks
 python code/Preprocessing-STEP1/find_events_m1.py
+
+# (Optional) Preview two-channel data for quality control
+python code/Preprocessing-STEP1/ach_ca_plots.py
 ```
 
-**STEP 2: Mask Creation & Curation**
+**Module 2 (M2): Initial Mask Creation**
 ```bash
 # Auto-segment dendrites from events
 python code/Masks-STEP2/auto_mask_m2.py
+```
 
+**Module 2.5 (M2.5): Optional Mask Refinement**
+```bash
+# Draw trunk guides on preview PNGs (optional, for better precision)
+python code/Masks-STEP2/mask_guide_m2.5.py
+
+# Re-run M2 with USE_GUIDES=True in auto_mask_m2.py
+python code/Masks-STEP2/auto_mask_m2.py
+```
+
+**Module 3 (M3): Mask Curation**
+```bash
 # Interactively curate masks in Napari
 python code/Masks-STEP2/filter_selected_masks_m3.py
 ```
 
-**STEP 3: Trace Extraction & Analysis**
+**Module 4 (M4): Trace Extraction**
 ```bash
 # Extract ΔF/F traces from curated masks
 python code/Traces-STEP3/save_traces_m4.py
+```
 
+**Module 5 (M5): Trace Analysis**
+```bash
 # Apply smoothing (optional)
 python code/Traces-STEP3/downsample_traces.py
 
 # Generate publication plots
 python code/Traces-STEP3/plot_selected_traces.py
+
+# Analyze global Ca²⁺ by depth (Y-layers)
+python code/Traces-STEP3/depth_analysis_plots.py
+
+# Compare inside vs outside mask dynamics
+python code/Traces-STEP3/outside_mask_plot.py
 ```
 
-**Visualization**
+**Module 6 (M6): Visualization**
 ```bash
-# Create mask overlays
-python code/organoid_outline.py --select dend_001,dend_016,dend_018 --combined
+# Create 3D movie of entire recording
+python code/Visual-STEP4/create_3d_movie_m6.py
+
+# OR create 3D movie in chunks (if movie is too long)
+python code/Visual-STEP4/create_3d_movie_chunks_m6.py
 ```
 
 ---
@@ -153,7 +199,7 @@ pip install -r requirements.txt
 
 ---
 
-## ✅ Expected Outputs
+## Expected Outputs
 
 ### Traces
 - **CSV files**: `dff_traces_curated_bgsub.csv` with columns for each dendrite
@@ -171,21 +217,6 @@ pip install -r requirements.txt
 
 ---
 
-## 🧼 Motion Correction
-
-The pipeline includes robust motion artifact removal:
-
-1. **Correlation-based detection**: Tile-wise frame-to-frame correlation analysis
-2. **Adaptive thresholds**: Rolling median + MAD for local threshold adaptation  
-3. **Physical removal**: Motion frames are completely removed (not set to NaN)
-4. **Frame mapping**: Original→clean frame indices preserved for reference
-
-Motion parameters can be tuned for sensitivity:
-- `K_MAD = 2.5`: Lower = more sensitive (remove more frames)
-- `TILES_YX = (4,4)`: More tiles = better local motion detection
-- `PAD_NEIGHBOR = 2`: Remove neighboring frames around detected motion
-
----
 
 ## 🎯 Interactive Curation (Napari)
 
@@ -204,9 +235,12 @@ Masks are shown with nearest neighbors for context, enabling precise manual edit
 
 - **Background subtraction**: Core-shell approach with 3D morphological operations
 - **Artifact correction**: Negative spike removal and smoothing
+- **Bleach correction**: Exponential decay fitting for photobleaching compensation
 - **Multiple output formats**: Raw traces, smoothed, decimated
 - **Publication plots**: Color-coded stacked traces with scale bars
 - **Flexible selection**: Choose specific dendrites for analysis
+- **Depth analysis**: Global Ca²⁺ activity stratified by Y-depth (4 layers)
+- **Spatial dynamics**: Inside vs outside mask comparisons with distance-based rings
 
 ---
 

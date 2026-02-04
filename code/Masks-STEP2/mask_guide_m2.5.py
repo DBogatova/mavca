@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Use after M2
+Use after M2 for better precision if you're not happy with original Module 2.
 Draw trunk guides on structural-masks_m2.py preview PNGs
 
 
