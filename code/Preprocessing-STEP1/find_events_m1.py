@@ -43,7 +43,20 @@ MIN_PROMINENCE = 1.0      # Minimum prominence in MAD units
 
 # === PATHS ===
 BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
-RAW_STACK_PATH = BASE / "raw" / f"runA_run1_rAi162_phpeb_green.tif"
+
+# Auto-detect green TIFF file in raw directory
+RAW_DIR = BASE / "raw"
+green_files = list(RAW_DIR.glob("*green*.tif"))
+# Filter out processed files - prefer the raw unprocessed version
+raw_green = [f for f in green_files if "processed" not in f.name.lower()]
+if raw_green:
+    RAW_STACK_PATH = raw_green[0]
+elif green_files:
+    RAW_STACK_PATH = green_files[0]
+else:
+    raise FileNotFoundError(f"No green TIFF file found in {RAW_DIR}")
+print(f"Using raw file: {RAW_STACK_PATH.name}")
+
 PREPROCESSED_FOLDER = BASE / "preprocessed"
 PREPROCESSED_FOLDER.mkdir(exist_ok=True)
 
@@ -88,7 +101,16 @@ def main():
     
     print("Loading stack...")
     stack = tifffile.imread(RAW_STACK_PATH).astype(np.float32)
-    stack = stack[:, :, :-Y_CROP, :]  # Crop Y dimension
+    print(f"Raw shape: {stack.shape} (ndim={stack.ndim})")
+    
+    # Handle both 3D (T, Y, X) and 4D (T, Z, Y, X) stacks
+    if stack.ndim == 3:
+        # 3D stack: add Z dimension of 1
+        stack = stack[:, np.newaxis, :, :]
+        print(f"Expanded 3D→4D: {stack.shape}")
+    
+    if Y_CROP > 0:
+        stack = stack[:, :, :-Y_CROP, :]  # Crop Y dimension
     print(f"Shape: {stack.shape} (T, Z, Y, X)")
 
     # === NORMALIZE EACH VOXEL ===

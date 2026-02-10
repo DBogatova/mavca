@@ -47,6 +47,11 @@ data/
 | `find_events_m1.py` | Detect motion, compute ΔF/F, detect calcium events, extract mini-stacks |
 | `ach_ca_plots.py` | (Optional) Preview two-channel data for quality control |
 
+### Module 1.5 (M1.5): Pre-segmentation
+| Script | Purpose |
+|--------|---------|
+| `pre_segmentation_m1.5.py` | Generate pre-segmentation masks before M2 for better initial segmentation |
+
 ### Module 2 (M2): Initial Mask Creation
 | Script | Purpose |
 |--------|---------|
@@ -112,6 +117,12 @@ python code/Preprocessing-STEP1/find_events_m1.py
 
 # (Optional) Preview two-channel data for quality control
 python code/Preprocessing-STEP1/ach_ca_plots.py
+```
+
+**Module 1.5 (M1.5): Pre-segmentation**
+```bash
+# Generate pre-segmentation masks for better initial segmentation
+python code/Preprocessing-STEP1/pre_segmentation_m1.5.py
 ```
 
 **Module 2 (M2): Initial Mask Creation**
@@ -267,4 +278,4 @@ If you use this pipeline, please cite:
 
 ## 🤝 Contributing
 
-This pipeline is designed for calcium imaging analysis of apical dendrites. For questions or contributions, please contact Daria Bogatova (daria@bu.edu), Anna Devor (adevor@bu.edu).
+This pipeline is designed for calcium imaging analysis of apical dendrites. For questions or contributions, please contact Daria Bogatova (daria@bu.edu) or Dr. Anna Devor (adevor@bu.edu).

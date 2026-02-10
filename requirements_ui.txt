@@ -1,0 +1,13 @@
+# UI Dependencies for MAVCA Pipeline UI
+# PyQt6 for the GUI framework
+PyQt6>=6.6.0
+
+# Testing dependencies
+pytest>=7.4.0
+pytest-qt>=4.2.0  # PyQt testing support
+hypothesis>=6.92.0  # Property-based testing
+
+# Additional dependencies for visualization
+matplotlib>=3.8.0  # For embedded plots
+numpy>=1.24.0  # For data handling
+napari>=0.4.18  # For 3D mask visualization (optional, can be installed separately)
