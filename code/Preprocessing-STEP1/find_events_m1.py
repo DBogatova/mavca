@@ -26,10 +26,17 @@ import gc
 mpl.rcParams['font.family'] = 'CMU Serif'
 
 # === CONFIGURATION ===
-DATE = "2025-12-25"
-MOUSE = "rAi162_phpeb"
+DATE = "2026-02-09"
+MOUSE = "rbp4cre_136_phpeb"
 RUN = "run1"
 CROP_RADIUS = 5  # Number of frames to include before/after each event
+FS_HZ = 6.0     # Acquisition frame rate (Hz)
+SKIP_FIRST_SECONDS = 7.0  # Set to 7.0 to remove first 7 seconds
+
+# Baseline subtraction mode for preprocessing
+BASELINE_MODE = "percentile"  # "mean" or "percentile"
+BASELINE_PERCENTILE_SUB = 15.0  # percentile to subtract per frame (used if mode is "percentile")
+
 START_THRESHOLD = 0.5  # Z-score threshold for event start
 END_THRESHOLD = -0.5   # Z-score threshold for event end (hysteresis)
 MAX_FRAME_GAP = 2     # Maximum gap between frames to group into same event
@@ -43,7 +50,20 @@ MIN_PROMINENCE = 1.0      # Minimum prominence in MAD units
 
 # === PATHS ===
 BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
-RAW_STACK_PATH = BASE / "raw" / f"runA_run1_rAi162_phpeb_green.tif"
+
+# Auto-detect green TIFF file in raw directory
+RAW_DIR = BASE / "raw"
+green_files = list(RAW_DIR.glob("*green*.tif"))
+# Filter out processed files - prefer the raw unprocessed version
+raw_green = [f for f in green_files if "processed" not in f.name.lower()]
+if raw_green:
+    RAW_STACK_PATH = raw_green[0]
+elif green_files:
+    RAW_STACK_PATH = green_files[0]
+else:
+    raise FileNotFoundError(f"No green TIFF file found in {RAW_DIR}")
+print(f"Using raw file: {RAW_STACK_PATH.name}")
+
 PREPROCESSED_FOLDER = BASE / "preprocessed"
 PREPROCESSED_FOLDER.mkdir(exist_ok=True)
 
@@ -53,7 +73,7 @@ SMOOTHED_STACK_PATH = PREPROCESSED_FOLDER / "stack_smoothed.tif"
 ACTIVE_FRAMES_PATH = PREPROCESSED_FOLDER / "active_frames.npy"
 PREVIEW_FOLDER = PREPROCESSED_FOLDER / "active_frame_previews"
 PREVIEW_FOLDER.mkdir(exist_ok=True)
-EVENT_CROPS_FOLDER = PREPROCESSED_FOLDER / "event_crops_test"
+EVENT_CROPS_FOLDER = PREPROCESSED_FOLDER / "event_crops"
 EVENT_CROPS_FOLDER.mkdir(exist_ok=True)
 
 def group_consecutive(frames, gap=1):
@@ -88,7 +108,23 @@ def main():
     
     print("Loading stack...")
     stack = tifffile.imread(RAW_STACK_PATH).astype(np.float32)
-    stack = stack[:, :, :-Y_CROP, :]  # Crop Y dimension
+    print(f"Raw shape: {stack.shape} (ndim={stack.ndim})")
+    
+    # Handle both 3D (T, Y, X) and 4D (T, Z, Y, X) stacks
+    if stack.ndim == 3:
+        # 3D stack: add Z dimension of 1
+        stack = stack[:, np.newaxis, :, :]
+        print(f"Expanded 3D→4D: {stack.shape}")
+    
+    if Y_CROP > 0:
+        stack = stack[:, :, :-Y_CROP, :]  # Crop Y dimension
+    
+    # Skip first N seconds if configured
+    if SKIP_FIRST_SECONDS > 0:
+        skip_frames = int(SKIP_FIRST_SECONDS * FS_HZ)
+        stack = stack[skip_frames:]
+        print(f"Skipped first {SKIP_FIRST_SECONDS}s ({skip_frames} frames)")
+    
     print(f"Shape: {stack.shape} (T, Z, Y, X)")
 
     # === NORMALIZE EACH VOXEL ===
@@ -99,11 +135,15 @@ def main():
     del stack, vmin, vmax
     gc.collect()
 
-    # === SUBTRACT MEAN PER TIME FRAME ===
-    print("Subtracting mean per time frame...")
-    frame_mean = stack_norm.mean(axis=(1, 2, 3), keepdims=True)
-    stack_norm -= frame_mean
-    del frame_mean
+    # === SUBTRACT BASELINE PER TIME FRAME ===
+    if BASELINE_MODE == "percentile":
+        print(f"Subtracting {BASELINE_PERCENTILE_SUB}th percentile per time frame...")
+        frame_baseline = np.percentile(stack_norm, BASELINE_PERCENTILE_SUB, axis=(1, 2, 3), keepdims=True)
+    else:
+        print("Subtracting mean per time frame...")
+        frame_baseline = stack_norm.mean(axis=(1, 2, 3), keepdims=True)
+    stack_norm -= frame_baseline
+    del frame_baseline
     gc.collect()
 
     # === GAUSSIAN SMOOTHING ===

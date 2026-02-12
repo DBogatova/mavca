@@ -53,7 +53,7 @@ import tifffile
 import numpy as np
 import matplotlib.pyplot as plt
 
-from scipy.ndimage import gaussian_filter, binary_dilation, generate_binary_structure, distance_transform_edt
+from scipy.ndimage import gaussian_filter, binary_dilation, generate_binary_structure, distance_transform_edt, median_filter
 from skimage.filters import sato
 from skimage.measure import label, regionprops
 from skimage.morphology import remove_small_objects
@@ -61,17 +61,27 @@ from tqdm import tqdm
 
 
 # ================== CONFIG ==================
-DATE = "2025-12-25"
-MOUSE = "rAi162_phpeb"
+DATE = "2026-02-09"
+MOUSE = "rbp4cre_136_phpeb"
 RUN = "run1"
 
 BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
 
-BESTFRAMES_FOLDER = BASE / "preprocessed" / "best_frames_test"   # <-- adjust
-IN_GLOB = "bestframe_*_rank??_3d.tif"
+# ---- Input mode ----
+# Set to True to skip M1.5 and read directly from M1 event_crops
+# Set to False to use M1.5 best_frames (original behavior)
+USE_EVENT_CROPS_DIRECTLY = True
+
+# Input paths (auto-configured based on mode)
+if USE_EVENT_CROPS_DIRECTLY:
+    INPUT_FOLDER = BASE / "preprocessed" / "event_crops"
+    IN_GLOB = "event_group_*.tif"
+else:
+    INPUT_FOLDER = BASE / "preprocessed" / "best_frames"
+    IN_GLOB = "bestframe_*_rank??_3d.tif"
 
 # ---- Guide support ----
-USE_GUIDES = True                     # Set to True to use trunk guides
+USE_GUIDES = False                    # Set to True to use trunk guides
 GUIDE_JSON = BASE / "preprocessed" / "guides" / "trunk_guides.json"
 GUIDE_DISTANCE_THRESHOLD = 20.0        # pixels: max distance from guide polyline
 
@@ -87,41 +97,50 @@ for p in (OUT_LABELS, OUT_PREV, OUT_BGS_MASK, OUT_BG_EVENT):
     p.mkdir(parents=True, exist_ok=True)
 
 # ---- Physical voxel size (μm) ----
-VOXEL_SIZE = (3.9, 1.0, 1.2)  # (Z,Y,X)
+VOXEL_SIZE = (4.8, 1.0, 1.2)  # (Z,Y,X)
 VOXEL_VOL  = float(np.prod(VOXEL_SIZE))
 
 # ---- Ignore top band only (surface haze); DO NOT hard-ban bottom for structural trunks ----
 Y_IGNORE_TOP_FRAC = 0.12  # smaller than your event version; adjust as needed (0.0–0.2)
 
+# ---- Denoising (for high-noise data) ----
+USE_MEDIAN_FILTER = True   # Apply median filter before Gaussian (good for speckle noise)
+MEDIAN_FILTER_SIZE = 3     # Size of median filter kernel
+
 # ---- Pre-smoothing of raw ----
-RAW_SMOOTH_SIGMA = (0.6, 1.0, 1.0)  # (Z,Y,X) light denoise
+RAW_SMOOTH_SIGMA = (1.0, 1.5, 1.5)  # (Z,Y,X) - increased for noisy data
+
+# ---- Temporal aggregation (when using event_crops directly) ----
+# Instead of just top 3 frames, use temporal MIP across more frames for noise reduction
+USE_TEMPORAL_MIP = True    # Use max projection across time for better SNR
+TEMPORAL_MIP_FRAMES = 10   # Number of frames around peak to include in temporal MIP
 
 # ---- Vesselness / tubularness (Sato) ----
 # These are in voxels; tune if your trunks are thicker/thinner
-SATO_SIGMAS = (1, 2, 3, 4)
+SATO_SIGMAS = (1, 2, 3, 4, 5, 6)  # Extended range for thicker trunks
 
 # Threshold on vesselness (percentile within deep region)
-VESS_P_THR = 98.8          # lower = more trunks + more junk; try 98.5–99.2
+VESS_P_THR = 97.5          # lowered for faint trunks (was 98.8)
 VESS_P_NORM = 99.9         # normalization percentile for vesselness map
 
 # ---- Optional raw-intensity grow to fill trunk bodies ----
 DO_RAW_GROW = True
-RAW_GROW_P_THR = 97.5      # threshold on raw3d within deep region for growing (97–99)
+RAW_GROW_P_THR = 96.5      # lowered for faint trunks (was 97.5)
 GROW_DILATION_ITERS = 2    # dilation radius for grow mask
 GROW_CONNECTIVITY = 2      # 2 => 18-connect struct for dilation
 
 # ---- 3D cleanup ----
-MIN_VOL_UM3 = 8000.0       # structural trunks are bigger; set lower if you want thin branches too
+MIN_VOL_UM3 = 6000.0       # lowered for partial trunks (was 8000)
 MAX_VOL_UM3 = None         # or a number, e.g. 300000
 
-# ---- Geometry filters for trunks ----
-MIN_Y_SPAN_FRAC = 0.18     # must span at least 30% of Y
-MIN_ASPECT_Y_OVER_X = 2.0  # bbox_y / bbox_x
-MIN_ASPECT_Y_OVER_Z = 2.0  # bbox_y / bbox_z
+# ---- Geometry filters for trunks (relaxed for noisy data) ----
+MIN_Y_SPAN_FRAC = 0.15     # lowered (was 0.18)
+MIN_ASPECT_Y_OVER_X = 1.8  # relaxed (was 2.0)
+MIN_ASPECT_Y_OVER_Z = 1.8  # relaxed (was 2.0)
 
 # PCA verticality: principal axis should align with Y.
-# Keep if |vy| >= MIN_VERT_COS (0.85 ~ within ~32 degrees of vertical)
-MIN_VERT_COS = 0.85
+# Keep if |vy| >= MIN_VERT_COS (0.75 ~ within ~41 degrees of vertical)
+MIN_VERT_COS = 0.75        # relaxed (was 0.85)
 
 # ---- Per-event limits ----
 KEEP_MAX_TRUNKS_PER_EVENT = 30  # prevents explosion if thresholds too low
@@ -145,6 +164,65 @@ def parse_event_group(stem: str) -> str | None:
 def parse_rank(stem: str) -> int | None:
     m = RE_RANK.search(stem)
     return int(m.group(1)) if m else None
+
+
+# ================== BEST FRAME SELECTION (for direct event_crops mode) ==================
+def select_best_frames_from_crop(crop: np.ndarray, top_k: int = 3, top_z_planes: int = 15, 
+                                  use_temporal_mip: bool = False, temporal_mip_frames: int = 10) -> List[np.ndarray]:
+    """
+    Select best frames from a 4D event crop (T,Z,Y,X) using M1.5-style scoring.
+    
+    If use_temporal_mip=True, returns a single volume that is the temporal MIP 
+    across frames around the peak (better for noisy data).
+    Otherwise returns list of 3D volumes (Z,Y,X) for the top_k best frames.
+    """
+    if crop.ndim != 4 or crop.shape[0] < 1:
+        return []
+    
+    T, Z, Y, X = crop.shape
+    P_HI, P_MID = 99.9, 60.0
+    
+    # Score each frame
+    scores = np.zeros(T, dtype=np.float32)
+    for t in range(T):
+        vol = crop[t]
+        # Z-MIP (optionally restricted to top planes)
+        if top_z_planes and top_z_planes > 0:
+            z0 = max(Z - top_z_planes, 0)
+            mip = np.nanmax(vol[z0:], axis=0)
+        else:
+            mip = np.nanmax(vol, axis=0)
+        scores[t] = float(np.percentile(mip, P_HI) - np.percentile(mip, P_MID))
+    
+    # Find peak
+    peak = int(np.argmax(scores))
+    
+    if use_temporal_mip:
+        # Temporal MIP: max projection across frames around peak for noise reduction
+        half_win = temporal_mip_frames // 2
+        t0 = max(peak - half_win, 0)
+        t1 = min(peak + half_win + 1, T)
+        temporal_mip = np.max(crop[t0:t1], axis=0)  # (Z,Y,X)
+        return [temporal_mip]
+    else:
+        # Original behavior: select top_k individual frames
+        half_window = 6
+        w0 = max(peak - half_window, 0)
+        w1 = min(peak + half_window, T - 1)
+        window = np.arange(w0, w1 + 1, dtype=int)
+        
+        # Select with spacing
+        order = window[np.argsort(scores[window])[::-1]]
+        chosen = []
+        min_sep = 1
+        for t in order:
+            t = int(t)
+            if all(abs(t - c) >= min_sep for c in chosen):
+                chosen.append(t)
+            if len(chosen) >= top_k:
+                break
+        
+        return [crop[t] for t in chosen]
 
 
 # ================== HELPERS ==================
@@ -248,9 +326,9 @@ def create_guide_mask(polylines: List[List[List[float]]], shape_yx: Tuple[int, i
 
 # ================== MAIN ==================
 def main():
-    paths = sorted(BESTFRAMES_FOLDER.glob(IN_GLOB))
+    paths = sorted(INPUT_FOLDER.glob(IN_GLOB))
     if not paths:
-        raise FileNotFoundError(f"No files matched {IN_GLOB} in {BESTFRAMES_FOLDER}")
+        raise FileNotFoundError(f"No files matched {IN_GLOB} in {INPUT_FOLDER}")
 
     # Load guides
     guides = load_guides()
@@ -259,17 +337,27 @@ def main():
     elif USE_GUIDES:
         print("[warn] USE_GUIDES=True but no guides found, proceeding without guides")
 
-    # Group by event_group and rank
-    groups: Dict[str, Dict[int, Path]] = {}
-    for p in paths:
-        eg = parse_event_group(p.stem)
-        rk = parse_rank(p.stem)
-        if eg is None or rk is None:
-            continue
-        groups.setdefault(eg, {})[rk] = p
-
-    event_ids = sorted(groups.keys())
-    print(f"Found {len(event_ids)} event groups with rank01/02/03 bestframes.")
+    # Different grouping logic based on input mode
+    if USE_EVENT_CROPS_DIRECTLY:
+        # Direct mode: each file is a 4D event crop (T,Z,Y,X)
+        event_files: Dict[str, Path] = {}
+        for p in paths:
+            eg = parse_event_group(p.stem)
+            if eg:
+                event_files[eg] = p
+        event_ids = sorted(event_files.keys())
+        print(f"[Direct mode] Found {len(event_ids)} event crops (skipping M1.5)")
+    else:
+        # Best-frames mode: group by event_group and rank
+        groups: Dict[str, Dict[int, Path]] = {}
+        for p in paths:
+            eg = parse_event_group(p.stem)
+            rk = parse_rank(p.stem)
+            if eg is None or rk is None:
+                continue
+            groups.setdefault(eg, {})[rk] = p
+        event_ids = sorted(groups.keys())
+        print(f"[Best-frames mode] Found {len(event_ids)} event groups with rank01/02/03 bestframes.")
 
     extracted = []
     total = 0
@@ -280,20 +368,37 @@ def main():
         if total >= MAX_MASKS_TOTAL:
             break
 
-        rank_map = groups[eg]
-        if any(r not in rank_map for r in RANKS_REQUIRED):
-            continue
+        # Load volumes based on mode
+        if USE_EVENT_CROPS_DIRECTLY:
+            # Load 4D crop and select best frames inline
+            crop_path = event_files[eg]
+            crop = tifffile.imread(crop_path).astype(np.float32)
+            if crop.ndim != 4:
+                continue
+            vols = select_best_frames_from_crop(
+                crop, top_k=3, 
+                use_temporal_mip=USE_TEMPORAL_MIP, 
+                temporal_mip_frames=TEMPORAL_MIP_FRAMES
+            )
+            src_files = [crop_path.name]
+            del crop
+            gc.collect()
+        else:
+            # Original best-frames mode
+            rank_map = groups[eg]
+            if any(r not in rank_map for r in RANKS_REQUIRED):
+                continue
 
-        vols: List[np.ndarray] = []
-        src_files: List[str] = []
-        for r in RANKS_REQUIRED:
-            p = rank_map[r]
-            v = tifffile.imread(p).astype(np.float32)
-            if v.ndim != 3:
-                vols = []
-                break
-            vols.append(v)
-            src_files.append(p.name)
+            vols: List[np.ndarray] = []
+            src_files: List[str] = []
+            for r in RANKS_REQUIRED:
+                p = rank_map[r]
+                v = tifffile.imread(p).astype(np.float32)
+                if v.ndim != 3:
+                    vols = []
+                    break
+                vols.append(v)
+                src_files.append(p.name)
 
         if not vols:
             continue
@@ -311,8 +416,12 @@ def main():
         # also keep bg2d for previews
         bg2d = contrast_stretch_01(z_mip_2d(raw3d), 2, 98).astype(np.float16)
 
-        # 1) light denoise
-        raw_sm = gaussian_filter(raw3d, sigma=RAW_SMOOTH_SIGMA)
+        # 1) denoise (median filter for speckle + Gaussian smoothing)
+        if USE_MEDIAN_FILTER:
+            raw_sm = median_filter(raw3d, size=MEDIAN_FILTER_SIZE)
+            raw_sm = gaussian_filter(raw_sm, sigma=RAW_SMOOTH_SIGMA)
+        else:
+            raw_sm = gaussian_filter(raw3d, sigma=RAW_SMOOTH_SIGMA)
 
         # 2) vesselness/tubularness
         # sato expects float image; output is >=0

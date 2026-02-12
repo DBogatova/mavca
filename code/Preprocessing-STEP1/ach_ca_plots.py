@@ -19,12 +19,15 @@ import pandas as pd
 from scipy.optimize import curve_fit
 
 # ===== CONFIGURATION =====
-DATE = "2025-12-25"
-MOUSE = "rAi162_phpeb"
-RUN   = "run1"
+DATE = "2026-02-09"
+MOUSE = "rbp4cre_136_phpeb"
+RUN = "run1"
 
 # Acquisition
-FS_HZ = 5.0   # frames per second
+FS_HZ = 6.0   # frames per second
+
+# Time trimming
+SKIP_FIRST_SECONDS = 7.0  # Set to 7.0 to remove first 7 seconds
 
 # Z-handling
 ZMIN = 0
@@ -45,8 +48,8 @@ CC_NORMALIZE   = True
 
 # Paths
 BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
-RAW_ACH_PATH = BASE / "raw" / f"runA_{RUN}_{MOUSE}_red.tif"
-RAW_CA_PATH  = BASE / "raw" / f"runA_{RUN}_{MOUSE}_green.tif"
+RAW_ACH_PATH = BASE / "raw" / f"runA_{RUN}_{MOUSE}-reslice-red.tif"
+RAW_CA_PATH  = BASE / "raw" / f"runA_{RUN}_{MOUSE}-reslice-green.tif"
 
 OUT_DIR = BASE / "quicklook"
 OUT_DIR.mkdir(exist_ok=True, parents=True)
@@ -136,6 +139,14 @@ def main():
 
     if ach_4d.shape != ca_4d.shape:
         raise ValueError(f"Shape mismatch: ACh {ach_4d.shape} vs Ca {ca_4d.shape}")
+    
+    # Skip first N seconds if configured
+    if SKIP_FIRST_SECONDS > 0:
+        skip_frames = int(SKIP_FIRST_SECONDS * FS_HZ)
+        ach_4d = ach_4d[skip_frames:]
+        ca_4d = ca_4d[skip_frames:]
+        print(f"Skipped first {SKIP_FIRST_SECONDS}s ({skip_frames} frames)")
+    
     T,Z,Y,X = ach_4d.shape
     print(f"Stacks shape: T={T}, Z={Z}, Y={Y}, X={X}, fs={FS_HZ} Hz")
 
