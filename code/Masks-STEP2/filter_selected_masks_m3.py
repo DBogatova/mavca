@@ -25,18 +25,21 @@ from scipy.spatial.distance import cdist
 import csv
 
 # ======= CONFIG =======
-DATE = "2026-02-09"
+DATE = "2025-12-02"
 MOUSE = "rbp4cre_136_phpeb"
-RUN = "run1"
+RUN = "run4"
 
-VOXEL_SIZE = (4.8, 1.0 , 1.2)  # (Z,Y,X) μm
+VOXEL_SIZE = (3.9, 1.0, 1.2)  # (Z,Y,X) μm
 NEIGHBOR_K_DEFAULT = 3
 NEIGHBOR_K_MAX = 6
 
 # ======= PATHS =======
 BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
-LABELMAP_FOLDER = BASE / "labelmaps"
-BGS_FOLDER      = BASE / "labelmap_backgrounds"
+
+# Input: split output from M2b (change to "labelmaps" / "labelmap_backgrounds" to use raw M2 output)
+LABELMAP_FOLDER = BASE / "labelmaps_split"
+BGS_FOLDER      = BASE / "labelmap_backgrounds_split"
+
 OUTPUT_FOLDER   = BASE / "labelmaps_curated_dynamic"
 OUTPUT_FOLDER.mkdir(parents=True, exist_ok=True)
 LOG_PATH = OUTPUT_FOLDER / "curation_log.csv"
@@ -82,6 +85,10 @@ def mask_subtract(a, b):
     return (a.astype(bool) & ~b.astype(bool)).astype(np.uint8)
 
 def save_curated(masks, names, deleted, edited):
+    # Clear old files from previous runs
+    for old in OUTPUT_FOLDER.glob("dend_*_labelmap.tif"):
+        old.unlink()
+
     count = 0
     rows = []
     for i, name in enumerate(names):

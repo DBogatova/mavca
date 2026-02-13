@@ -43,9 +43,9 @@ except ImportError:
 # =================
 # ===== CONFIG =====
 # =================
-DATE = "2025-12-25"
-MOUSE = "rAi162_phpeb"
-RUN = "run1"
+DATE = "2025-12-02"
+MOUSE = "rbp4cre_136_phpeb"
+RUN = "run4"
 
 FRAME_RATE = 5.0
 CHUNK_T = 118
@@ -117,7 +117,7 @@ PROJECT_ROOT = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-den
 BASE = PROJECT_ROOT / "scape-data" / DATE / MOUSE / RUN
 
 RAW_CLEAN_PATH = BASE / "preprocessed" / "raw_clean.tif"
-RAW_ORIG_PATH = BASE / "raw" / f"runA_{RUN}_{MOUSE}_green.tif"
+RAW_ORIG_PATH = BASE / "raw" / f"runA_{RUN}_{MOUSE}_binimagej_reslice_green.tif"
 RAW_STACK_PATH = RAW_CLEAN_PATH if RAW_CLEAN_PATH.exists() else RAW_ORIG_PATH
 
 MASK_FOLDER = BASE / "labelmaps_curated_dynamic"

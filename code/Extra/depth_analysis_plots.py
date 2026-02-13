@@ -13,9 +13,9 @@ from scipy.ndimage import gaussian_filter1d
 # =================
 # ===== CONFIG =====
 # =================
-DATE = "2025-12-25"
-MOUSE = "rAi162_phpeb"
-RUN = "run1"
+DATE = "2025-12-02"
+MOUSE = "rbp4cre_136_phpeb"
+RUN = "run4"
 
 FRAME_RATE = 5.0
 CHUNK_T = 118
@@ -38,7 +38,7 @@ PROJECT_ROOT = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-den
 BASE = PROJECT_ROOT / "scape-data" / DATE / MOUSE / RUN
 
 RAW_CLEAN_PATH = BASE / "preprocessed" / "raw_clean.tif"
-RAW_ORIG_PATH = BASE / "raw" / f"runA_{RUN}_{MOUSE}_green.tif"
+RAW_ORIG_PATH = BASE / "raw" / f"runA_{RUN}_{MOUSE}_binimagej_reslice_green.tif"
 RAW_STACK_PATH = RAW_CLEAN_PATH if RAW_CLEAN_PATH.exists() else RAW_ORIG_PATH
 
 OUTPUT_PATH = BASE / "traces"
@@ -132,7 +132,7 @@ def plot_depth_traces(time_s, traces, chunks, output_path=None):
     depth_labels = ['Top (surface)', 'Upper middle', 'Lower middle', 'Bottom (deep)']
     
     for i, (trace, (y_start, y_end)) in enumerate(zip(traces, chunks)):
-        offset_trace = trace + i * 0.03
+        offset_trace = trace + (3 - i) * 0.03
         ax.plot(time_s, offset_trace, color=colors[i], linewidth=1.5, 
                 label=f'{depth_labels[i]} (Y: {y_start}-{y_end})')
     

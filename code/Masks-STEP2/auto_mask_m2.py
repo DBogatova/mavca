@@ -61,10 +61,18 @@ Y_IGNORE_TOP_FRAC = 0.18           # ignore top 18% of Y when detecting (surface
 USE_TEMPORAL_MIP = True           # Set True to use temporal MIP instead of per-frame
 TEMPORAL_MIP_FRAMES = 10           # Frames around peak for temporal MIP
 
+# ---- Multi-window hysteresis (used when USE_TEMPORAL_MIP=True) ----
+TOPK_PEAKS = 4                     # Number of peak windows to detect in
+PEAK_MIN_SEP = 5                   # Minimum separation between peaks (frames)
+SEED_PCT = 99.7                    # High-confidence seed percentile on sum_pos
+CAND_PCT = 98.0                    # Lower candidate percentile on sum_pos (tune 97–98.5)
+
 # ---- Vesselness enhancement (helps capture full trunks) ----
 USE_VESSELNESS = True             # Set True to add Sato vesselness filter
 SATO_SIGMAS = (1, 2, 3, 4, 5)      # Scales for vesselness
-VESSELNESS_PERCENTILE = 97.0       # Threshold for vesselness
+VESSELNESS_PERCENTILE = 97.0       # Threshold for vesselness (used in per-frame mode)
+VESS_SEED_PCT = 99.0              # Vesselness seed percentile (multi-window mode)
+VESS_CAND_PCT = 97.0              # Vesselness candidate percentile (multi-window mode)
 
 # ---- Intensity grow (fills trunk bodies) ----
 DO_INTENSITY_GROW = True          # Set True to grow masks using raw intensity
@@ -75,7 +83,7 @@ GROW_DILATION_ITERS = 2            # Dilation iterations
 # "off"      = ignore M1.5, use event crops only (original auto_mask behavior)
 # "guide"    = union bestframe seeds with auto_mask candidates
 # "primary"  = detect directly from M1.5 best frames (skip auto_mask enhancement)
-BESTFRAME_MODE = "primary"         # "off", "guide", or "primary"
+BESTFRAME_MODE = "guide"         # "off", "guide", or "primary"
 BESTFRAMES_FOLDER = BASE / "preprocessed" / "best_frames"
 BESTFRAME_GLOB = "bestframe_*_rank??_3d.tif"
 BESTFRAME_INTENSITY_PCT = 97.0     # Percentile threshold on best frames
@@ -84,8 +92,8 @@ MAX_FRAME_GAP = 1
 MIN_EVENT_LENGTH = 1               # allow even very brief events
 
 # ---- Volume gates (μm³) ----
-MIN_VOL = 3000.0                    # keep small dendrites
-MAX_VOL = 200000                    # None → no upper cap
+MIN_VOL = 4000.0                    # keep small dendrites
+MAX_VOL = None                    # None → no upper cap
 
 # ---- Geometry filters (relaxed - to remove specks) ----
 USE_GEOMETRY_FILTER = True
@@ -183,6 +191,34 @@ def enhance_for_detection(stack_TZYX: np.ndarray) -> np.ndarray:
 
     return enh.astype(np.float32)
 
+# ================== MULTI-WINDOW HELPERS ==================
+
+def find_topk_peaks(frame_max, k, min_sep):
+    """Non-max suppression on 1-D signal. Returns up to k peak indices sorted descending by value."""
+    signal = frame_max.copy()
+    peaks = []
+    for _ in range(k):
+        idx = int(np.argmax(signal))
+        if signal[idx] <= 0:
+            break
+        peaks.append(idx)
+        lo = max(idx - min_sep, 0)
+        hi = min(idx + min_sep + 1, len(signal))
+        signal[lo:hi] = -np.inf
+    return sorted(peaks)
+
+
+def keep_components_touching_seed(cand, seed, connectivity=2):
+    """Label cand in 3D; keep only components that overlap at least one seed voxel."""
+    lbl = label(cand)
+    touching = np.unique(lbl[seed & cand])
+    touching = touching[touching > 0]
+    if len(touching) == 0:
+        return np.zeros_like(cand, dtype=bool)
+    out = np.isin(lbl, touching)
+    return out
+
+
 # ================== BESTFRAME GUIDE ==================
 RE_EVENT_GROUP = re.compile(r"(event_group_\d{4})")
 
@@ -270,68 +306,90 @@ def main():
 
         # ===== 1) Temporal MIP mode OR per-frame mode =====
         if USE_TEMPORAL_MIP:
-            # Find peak frame and build temporal MIP
+            # --- Multi-window detection ---
             frame_max = det_stack.max(axis=(1, 2, 3))
-            peak = int(np.argmax(frame_max))
+            peaks = find_topk_peaks(frame_max, TOPK_PEAKS, PEAK_MIN_SEP)
             half = TEMPORAL_MIP_FRAMES // 2
-            t0 = max(peak - half, 0)
-            t1 = min(peak + half + 1, T)
-            
-            # Temporal MIP of enhanced stack
-            det_vol = np.max(det_stack[t0:t1], axis=0)  # (Z,Y,X)
-            raw_vol = np.max(stack[t0:t1], axis=0)      # for grow
-            
-            # Threshold on MIP
-            det_for_thr = det_vol.copy()
-            if y_cut > 0:
-                det_for_thr[:, :y_cut, :] = np.nan
-            thr = np.nanpercentile(det_for_thr, INTENSITY_PERCENTILE)
-            cand = det_vol > thr
-            
-            # Optional vesselness
-            if USE_VESSELNESS:
-                vess = sato(det_vol, sigmas=SATO_SIGMAS, black_ridges=False)
-                vess_for_thr = vess.copy()
+            print(f"  [{eg_id}] peaks={peaks}")
+
+            union_cand = np.zeros((Z, Y, X), dtype=bool)
+
+            for pi, peak in enumerate(peaks):
+                t0 = max(peak - half, 0)
+                t1 = min(peak + half + 1, T)
+
+                # det_vol = temporal max (bright stuff)
+                det_vol = np.max(det_stack[t0:t1], axis=0)  # (Z,Y,X)
+
+                # sum_pos = temporal evidence (dim-but-consistent)
+                pos = np.clip(det_stack[t0:t1], 0, None)
+                sum_pos = pos.sum(axis=0).astype(np.float32)  # (Z,Y,X)
+                sp_norm = np.nanpercentile(sum_pos, 99.9) + 1e-8
+                sum_pos /= sp_norm
+
+                # Deep region (exclude top band) for percentile computation only
+                sum_pos_deep = sum_pos.copy()
                 if y_cut > 0:
-                    vess_for_thr[:, :y_cut, :] = np.nan
-                vess_thr = np.nanpercentile(vess_for_thr, VESSELNESS_PERCENTILE)
-                cand_vess = vess > vess_thr
-                cand = cand | cand_vess  # Union
-            
-            # Optional bestframe guide: union with seeds from M1.5 best frames
-            if BESTFRAME_MODE == "guide" and eg_id in bestframe_vols:
-                bf_seed = bestframe_seed_mask(
-                    bestframe_vols[eg_id], y_cut, BESTFRAME_INTENSITY_PCT
-                )
-                if bf_seed is not None and bf_seed.shape == cand.shape:
-                    n_before = cand.sum()
-                    cand = cand | bf_seed
-                    n_added = cand.sum() - n_before
-                    if n_added > 0:
-                        print(f"  [{eg_id}] Bestframe guide added {n_added} voxels")
-            
-            if y_cut > 0:
-                cand[:, :y_cut, :] = False
-            
-            # Optional intensity grow
-            if DO_INTENSITY_GROW and cand.any():
-                raw_for_thr = raw_vol.copy()
-                if y_cut > 0:
-                    raw_for_thr[:, :y_cut, :] = np.nan
-                grow_thr = np.nanpercentile(raw_for_thr, GROW_PERCENTILE)
-                raw_hi = raw_vol > grow_thr
-                if y_cut > 0:
-                    raw_hi[:, :y_cut, :] = False
-                g = cand.copy()
-                for _ in range(GROW_DILATION_ITERS):
-                    g = binary_dilation(g, structure=st_grow)
-                cand = g & raw_hi
-            
-            # Single mask from temporal MIP
-            if cand.any():
-                mask_3d = cand
-                t_start, t_end = t0, t1
-                # Process this single mask
+                    sum_pos_deep[:, :y_cut, :] = np.nan
+
+                # --- Hysteresis: seeds + candidates from sum_pos ---
+                seed_thr = np.nanpercentile(sum_pos_deep, SEED_PCT)
+                cand_thr = np.nanpercentile(sum_pos_deep, CAND_PCT)
+                seed = sum_pos > seed_thr
+                cand = sum_pos > cand_thr
+
+                # --- Vesselness on sum_pos ---
+                if USE_VESSELNESS:
+                    vess = sato(sum_pos, sigmas=SATO_SIGMAS, black_ridges=False)
+                    vess_deep = vess.copy()
+                    if y_cut > 0:
+                        vess_deep[:, :y_cut, :] = np.nan
+                    vess_seed_thr = np.nanpercentile(vess_deep, VESS_SEED_PCT)
+                    vess_cand_thr = np.nanpercentile(vess_deep, VESS_CAND_PCT)
+                    seed = seed | (vess > vess_seed_thr)
+                    cand = cand | (vess > vess_cand_thr)
+
+                # --- Keep only candidates connected to seeds ---
+                cand = keep_components_touching_seed(cand, seed, connectivity=2)
+
+                n_seed = seed.sum()
+                n_cand_raw = (sum_pos > cand_thr).sum()
+                n_final = cand.sum()
+                print(f"    window {pi} [t={t0}:{t1}] seed={n_seed}  cand_raw={n_cand_raw}  final={n_final}")
+
+                # Optional bestframe guide: union with seeds from M1.5 best frames
+                if BESTFRAME_MODE == "guide" and eg_id in bestframe_vols:
+                    bf_seed = bestframe_seed_mask(
+                        bestframe_vols[eg_id], y_cut, BESTFRAME_INTENSITY_PCT
+                    )
+                    if bf_seed is not None and bf_seed.shape == cand.shape:
+                        n_before = cand.sum()
+                        cand = cand | bf_seed
+                        n_added = cand.sum() - n_before
+                        if n_added > 0:
+                            print(f"    [{eg_id}] Bestframe guide added {n_added} voxels")
+
+                # Optional intensity grow
+                if DO_INTENSITY_GROW and cand.any():
+                    raw_vol = np.max(stack[t0:t1], axis=0)
+                    raw_for_thr = raw_vol.copy()
+                    if y_cut > 0:
+                        raw_for_thr[:, :y_cut, :] = np.nan
+                    grow_thr = np.nanpercentile(raw_for_thr, GROW_PERCENTILE)
+                    raw_hi = raw_vol > grow_thr
+                    g = cand.copy()
+                    for _ in range(GROW_DILATION_ITERS):
+                        g = binary_dilation(g, structure=st_grow)
+                    cand = g & raw_hi
+
+                union_cand |= cand
+
+            # --- Process the union mask through the rest of the pipeline ---
+            if union_cand.any():
+                mask_3d = union_cand
+                t_start = max(min(peaks) - half, 0)
+                t_end = min(max(peaks) + half + 1, T)
+
                 cleaned = np.zeros_like(mask_3d, dtype=np.uint8)
                 for z in range(Z):
                     sl = (mask_3d[z].astype(np.uint8) * 255)
@@ -347,7 +405,7 @@ def main():
                                 keep2 |= rr
                         slb = keep2
                     cleaned[z] = slb
-                
+
                 cleaned = remove_small_objects(cleaned.astype(bool), int(MIN_VOL / VOXEL_VOL), connectivity=1)
                 if cleaned.any():
                     lbl3 = label(cleaned)

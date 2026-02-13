@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Module 1.5 (LEGACY / "pretty" version): Best-frame selection per event crop
+Module 1.5: Best-frame selection per event crop
 
 This is the closest-to-what-worked selector that produced filenames like:
   bestframe_event_group_0009_peak319_t00010_rank01_mip.png
 
-Key behaviors (legacy):
+Key behaviors:
 - Works on event crops saved by Module 1 (T,Z,Y,X)
 - For each frame t in the crop:
     * compute Z-MIP (optionally only TOP_Z_PLANES)
