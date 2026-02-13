@@ -22,15 +22,17 @@ Pipeline:
 
 import gc
 import csv
+import re
 from pathlib import Path
 
 import cv2
 import tifffile
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.ndimage import gaussian_filter
+from scipy.ndimage import gaussian_filter, binary_dilation, generate_binary_structure
 from skimage.morphology import remove_small_objects, label
 from skimage.measure import regionprops
+from skimage.filters import sato
 from tqdm import tqdm
 
 # ================== CONFIG ==================
@@ -55,12 +57,41 @@ VOXEL_VOL  = float(np.prod(VOXEL_SIZE))
 INTENSITY_PERCENTILE = 99.8        # per-frame percentile on enhanced deep stack
 Y_IGNORE_TOP_FRAC = 0.18           # ignore top 18% of Y when detecting (surface)
 
+# ---- Temporal aggregation ----
+USE_TEMPORAL_MIP = True           # Set True to use temporal MIP instead of per-frame
+TEMPORAL_MIP_FRAMES = 10           # Frames around peak for temporal MIP
+
+# ---- Vesselness enhancement (helps capture full trunks) ----
+USE_VESSELNESS = True             # Set True to add Sato vesselness filter
+SATO_SIGMAS = (1, 2, 3, 4, 5)      # Scales for vesselness
+VESSELNESS_PERCENTILE = 97.0       # Threshold for vesselness
+
+# ---- Intensity grow (fills trunk bodies) ----
+DO_INTENSITY_GROW = True          # Set True to grow masks using raw intensity
+GROW_PERCENTILE = 96.0             # Intensity threshold for growing
+GROW_DILATION_ITERS = 2            # Dilation iterations
+
+# ---- Best-frames mode (M1.5 output) ----
+# "off"      = ignore M1.5, use event crops only (original auto_mask behavior)
+# "guide"    = union bestframe seeds with auto_mask candidates
+# "primary"  = detect directly from M1.5 best frames (skip auto_mask enhancement)
+BESTFRAME_MODE = "primary"         # "off", "guide", or "primary"
+BESTFRAMES_FOLDER = BASE / "preprocessed" / "best_frames"
+BESTFRAME_GLOB = "bestframe_*_rank??_3d.tif"
+BESTFRAME_INTENSITY_PCT = 97.0     # Percentile threshold on best frames
+
 MAX_FRAME_GAP = 1
 MIN_EVENT_LENGTH = 1               # allow even very brief events
 
 # ---- Volume gates (μm³) ----
 MIN_VOL = 3000.0                    # keep small dendrites
-MAX_VOL = 150000.0                     # None → no upper cap
+MAX_VOL = 200000                    # None → no upper cap
+
+# ---- Geometry filters (relaxed - to remove specks) ----
+USE_GEOMETRY_FILTER = True
+MIN_Y_SPAN_FRAC = 0.06             # Very relaxed - just remove tiny specks
+MIN_ASPECT_Y_OVER_X = 0.8          # Very relaxed
+MIN_ASPECT_Y_OVER_Z = 0.8          # Very relaxed
 
 # ---- 2D/3D clean-up ----
 SLICE_OPEN_K  = 3                  # per-slice open
@@ -152,6 +183,57 @@ def enhance_for_detection(stack_TZYX: np.ndarray) -> np.ndarray:
 
     return enh.astype(np.float32)
 
+# ================== BESTFRAME GUIDE ==================
+RE_EVENT_GROUP = re.compile(r"(event_group_\d{4})")
+
+def load_bestframe_guide():
+    """Load M1.5 best frames grouped by event_group. Returns dict: eg -> list of 3D vols."""
+    if BESTFRAME_MODE == "off" or not BESTFRAMES_FOLDER.exists():
+        return {}
+    
+    paths = sorted(BESTFRAMES_FOLDER.glob(BESTFRAME_GLOB))
+    if not paths:
+        return {}
+    
+    groups = {}
+    for p in paths:
+        m = RE_EVENT_GROUP.search(p.stem)
+        if not m:
+            continue
+        eg = m.group(1)
+        vol = tifffile.imread(p).astype(np.float32)
+        if vol.ndim == 3:
+            groups.setdefault(eg, []).append(vol)
+    
+    print(f"[bestframe {BESTFRAME_MODE}] Loaded frames for {len(groups)} event groups")
+    return groups
+
+
+def bestframe_seed_mask(vols, y_cut, intensity_pct):
+    """
+    Build a seed mask from M1.5 best frames.
+    Takes max across best frames, thresholds by intensity percentile.
+    Returns 3D boolean mask (Z,Y,X).
+    """
+    if not vols:
+        return None
+    
+    # Max across best frames
+    combined = np.maximum.reduce(vols)  # (Z,Y,X)
+    
+    # Threshold
+    thr_vol = combined.copy()
+    if y_cut > 0:
+        thr_vol[:, :y_cut, :] = np.nan
+    thr = np.nanpercentile(thr_vol, intensity_pct)
+    seed = combined > thr
+    
+    if y_cut > 0:
+        seed[:, :y_cut, :] = False
+    
+    return seed
+
+
 # ================== MAIN ==================
 def main():
     event_paths = sorted(EVENT_FOLDER.glob("event_group_*.tif"))
@@ -160,6 +242,9 @@ def main():
     raw_masks = []  # tuples: (mask3d, vol_um3, event_path, t_start, t_end, bg2d)
     extracted = 0
 
+    # Load bestframe guides if enabled
+    bestframe_vols = load_bestframe_guide() if BESTFRAME_MODE != "off" else {}
+
     se_open  = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (SLICE_OPEN_K, SLICE_OPEN_K))
     se_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (SLICE_CLOSE_K, SLICE_CLOSE_K))
 
@@ -167,32 +252,143 @@ def main():
         if extracted >= MAX_DENDRITES_TOTAL:
             break
 
+        # Extract event group ID for bestframe matching
+        eg_match = RE_EVENT_GROUP.search(path.stem)
+        eg_id = eg_match.group(1) if eg_match else path.stem
+
         stack = tifffile.imread(path).astype(np.float32)  # (T,Z,Y,X)
         T, Z, Y, X = stack.shape
         if T == 0:
             del stack
             continue
 
+        y_cut = int(Y_IGNORE_TOP_FRAC * Y)
+        st_grow = generate_binary_structure(3, 2) if DO_INTENSITY_GROW else None
+
         # ===== 0) Build dendrite-enhanced stack for detection =====
         det_stack = enhance_for_detection(stack)          # (T,Z,Y,X)
 
-        # ===== 1) Per-frame percentile threshold on enhanced deep region =====
-        y_cut = int(Y_IGNORE_TOP_FRAC * Y)
+        # ===== 1) Temporal MIP mode OR per-frame mode =====
+        if USE_TEMPORAL_MIP:
+            # Find peak frame and build temporal MIP
+            frame_max = det_stack.max(axis=(1, 2, 3))
+            peak = int(np.argmax(frame_max))
+            half = TEMPORAL_MIP_FRAMES // 2
+            t0 = max(peak - half, 0)
+            t1 = min(peak + half + 1, T)
+            
+            # Temporal MIP of enhanced stack
+            det_vol = np.max(det_stack[t0:t1], axis=0)  # (Z,Y,X)
+            raw_vol = np.max(stack[t0:t1], axis=0)      # for grow
+            
+            # Threshold on MIP
+            det_for_thr = det_vol.copy()
+            if y_cut > 0:
+                det_for_thr[:, :y_cut, :] = np.nan
+            thr = np.nanpercentile(det_for_thr, INTENSITY_PERCENTILE)
+            cand = det_vol > thr
+            
+            # Optional vesselness
+            if USE_VESSELNESS:
+                vess = sato(det_vol, sigmas=SATO_SIGMAS, black_ridges=False)
+                vess_for_thr = vess.copy()
+                if y_cut > 0:
+                    vess_for_thr[:, :y_cut, :] = np.nan
+                vess_thr = np.nanpercentile(vess_for_thr, VESSELNESS_PERCENTILE)
+                cand_vess = vess > vess_thr
+                cand = cand | cand_vess  # Union
+            
+            # Optional bestframe guide: union with seeds from M1.5 best frames
+            if BESTFRAME_MODE == "guide" and eg_id in bestframe_vols:
+                bf_seed = bestframe_seed_mask(
+                    bestframe_vols[eg_id], y_cut, BESTFRAME_INTENSITY_PCT
+                )
+                if bf_seed is not None and bf_seed.shape == cand.shape:
+                    n_before = cand.sum()
+                    cand = cand | bf_seed
+                    n_added = cand.sum() - n_before
+                    if n_added > 0:
+                        print(f"  [{eg_id}] Bestframe guide added {n_added} voxels")
+            
+            if y_cut > 0:
+                cand[:, :y_cut, :] = False
+            
+            # Optional intensity grow
+            if DO_INTENSITY_GROW and cand.any():
+                raw_for_thr = raw_vol.copy()
+                if y_cut > 0:
+                    raw_for_thr[:, :y_cut, :] = np.nan
+                grow_thr = np.nanpercentile(raw_for_thr, GROW_PERCENTILE)
+                raw_hi = raw_vol > grow_thr
+                if y_cut > 0:
+                    raw_hi[:, :y_cut, :] = False
+                g = cand.copy()
+                for _ in range(GROW_DILATION_ITERS):
+                    g = binary_dilation(g, structure=st_grow)
+                cand = g & raw_hi
+            
+            # Single mask from temporal MIP
+            if cand.any():
+                mask_3d = cand
+                t_start, t_end = t0, t1
+                # Process this single mask
+                cleaned = np.zeros_like(mask_3d, dtype=np.uint8)
+                for z in range(Z):
+                    sl = (mask_3d[z].astype(np.uint8) * 255)
+                    sl = cv2.morphologyEx(sl, cv2.MORPH_OPEN,  se_open)
+                    sl = cv2.morphologyEx(sl, cv2.MORPH_CLOSE, se_close)
+                    slb = sl > 0
+                    if SLICE_MIN_PIX > 0:
+                        lbl2 = label(slb)
+                        keep2 = np.zeros_like(slb, bool)
+                        for i2 in range(1, int(lbl2.max()) + 1):
+                            rr = (lbl2 == i2)
+                            if rr.sum() >= SLICE_MIN_PIX:
+                                keep2 |= rr
+                        slb = keep2
+                    cleaned[z] = slb
+                
+                cleaned = remove_small_objects(cleaned.astype(bool), int(MIN_VOL / VOXEL_VOL), connectivity=1)
+                if cleaned.any():
+                    lbl3 = label(cleaned)
+                    props = sorted(regionprops(lbl3), key=lambda r: r.area, reverse=True)
+                    for r in props:
+                        if extracted >= MAX_DENDRITES_TOTAL:
+                            break
+                        voxels = int(r.area)
+                        vol_um3 = voxels * VOXEL_VOL
+                        if vol_um3 < MIN_VOL:
+                            continue
+                        if (MAX_VOL is not None) and (vol_um3 > MAX_VOL):
+                            continue
+                        if USE_GEOMETRY_FILTER:
+                            z0, y0, x0, z1, y1, x1 = r.bbox
+                            span_y = y1 - y0
+                            span_x = max(1, x1 - x0)
+                            span_z = max(1, z1 - z0)
+                            if span_y < int(MIN_Y_SPAN_FRAC * Y):
+                                continue
+                            if (span_y / span_x) < MIN_ASPECT_Y_OVER_X:
+                                continue
+                            if (span_y / span_z) < MIN_ASPECT_Y_OVER_Z:
+                                continue
+                        m = (lbl3 == r.label).astype(np.uint8)
+                        bg2d = z_mip_background_2d(stack, t_start, t_end)
+                        raw_masks.append((m, float(vol_um3), str(path), t_start, t_end, bg2d))
+                        extracted += 1
+            
+            del stack, det_stack
+            gc.collect()
+            continue  # Skip per-frame processing
 
+        # ===== Per-frame mode (original) =====
         det_for_thr = det_stack.copy()
         if y_cut > 0:
-            # mask out surface band when computing percentile
             det_for_thr[:, :, :y_cut, :] = np.nan
 
-        # per-frame percentile over (Z,Y,X)
-        per_frame_thr = np.nanpercentile(
-            det_for_thr, INTENSITY_PERCENTILE, axis=(1, 2, 3)
-        )  # shape (T,)
-
-        # binary stack from enhanced signal
+        per_frame_thr = np.nanpercentile(det_for_thr, INTENSITY_PERCENTILE, axis=(1, 2, 3))
         binary = det_stack > per_frame_thr[:, None, None, None]
 
-        # ignore surface band completely for detection
         if y_cut > 0:
             binary[:, :, :y_cut, :] = False
 
@@ -245,7 +441,7 @@ def main():
             lbl3 = label(cleaned)
             props = sorted(regionprops(lbl3), key=lambda r: r.area, reverse=True)
 
-            # ===== 4) Save components that pass volume gates =====
+            # ===== 4) Save components that pass volume and geometry gates =====
             for r in props:
                 voxels = int(r.area)
                 vol_um3 = voxels * VOXEL_VOL
@@ -253,6 +449,20 @@ def main():
                     continue
                 if (MAX_VOL is not None) and (vol_um3 > MAX_VOL):
                     continue
+
+                # Geometry filter to remove specks
+                if USE_GEOMETRY_FILTER:
+                    z0, y0, x0, z1, y1, x1 = r.bbox
+                    span_y = y1 - y0
+                    span_x = max(1, x1 - x0)
+                    span_z = max(1, z1 - z0)
+                    
+                    if span_y < int(MIN_Y_SPAN_FRAC * Y):
+                        continue
+                    if (span_y / span_x) < MIN_ASPECT_Y_OVER_X:
+                        continue
+                    if (span_y / span_z) < MIN_ASPECT_Y_OVER_Z:
+                        continue
 
                 m = (lbl3 == r.label).astype(np.uint8)
 
