@@ -87,8 +87,6 @@ MAX_DENDRITES_TOTAL = 255
 # ---- Polyline-cut parameters (Napari interactive mode) ----
 CUT_THICKNESS = 5                  # polyline rasterisation thickness (px)
 CUT_DILATE = 1                     # extra dilation iterations on cut mask
-EXTEND_THICKNESS = 7               # extension brush thickness (px)
-EXTEND_Z_DILATE = 2               # how many Z slices to dilate extensions into
 ERASE_THICKNESS = 5                # eraser brush thickness (px)
 POST_CLOSE_K = 3                   # morphological close kernel after edits (0 = off)
 
@@ -262,49 +260,6 @@ def split_by_cuts(mask3d, cuts2d):
     return lab3d, n
 
 
-def extend_mask_3d(mask3d, extend_polys, thickness, z_dilate):
-    """
-    Extend a 3D mask using user-drawn 2D polylines.
-
-    For each Z slice that already has mask content, the extension region
-    is added.  Then dilated a few Z slices so the extension blends in.
-
-    Parameters
-    ----------
-    mask3d : ndarray (Z,Y,X) bool
-    extend_polys : list of (N,2) arrays — (Y,X) polyline vertices
-    thickness : int — brush width for rasterisation
-    z_dilate : int — how many Z slices to spread the extension
-
-    Returns
-    -------
-    mask3d_ext : ndarray (Z,Y,X) bool — mask with extensions added
-    n_added : int — number of voxels added
-    """
-    Z, Y, X = mask3d.shape
-    ext2d = rasterise_polylines(extend_polys, (Y, X), thickness, dilate_iters=1)
-    n_ext_px = ext2d.sum()
-    if n_ext_px == 0:
-        return mask3d.copy(), 0
-
-    # Find which Z slices have mask content
-    has_mask = np.array([mask3d[z].any() for z in range(Z)])
-
-    # Expand the Z range by z_dilate so extensions bridge small gaps
-    active_z = set()
-    for z in range(Z):
-        if has_mask[z]:
-            for dz in range(-z_dilate, z_dilate + 1):
-                zz = z + dz
-                if 0 <= zz < Z:
-                    active_z.add(zz)
-
-    out = mask3d.copy()
-    n_before = out.sum()
-    for z in sorted(active_z):
-        out[z] |= ext2d
-    n_added = int(out.sum() - n_before)
-    return out, n_added
 
 
 def erase_from_mask_3d(mask3d, erase_polys, thickness):
@@ -330,7 +285,7 @@ def erase_from_mask_3d(mask3d, erase_polys, thickness):
 def post_edit_cleanup(mask3d, close_k):
     """
     Per-slice morphological close to fill small gaps and smooth edges
-    after manual edits (extend/erase/cut).  Skipped if close_k <= 0.
+    after manual edits (erase/cut).  Skipped if close_k <= 0.
     """
     if close_k <= 0:
         return mask3d
@@ -489,13 +444,6 @@ def napari_cut(dend_ids=None):
         )
         viewer.add_shapes(
             ndim=2,
-            name="extend_lines",
-            shape_type="path",
-            edge_color="cyan",
-            edge_width=1,
-        )
-        viewer.add_shapes(
-            ndim=2,
             name="erase_lines",
             shape_type="path",
             edge_color="yellow",
@@ -516,31 +464,24 @@ def napari_cut(dend_ids=None):
         did = row["dend_id"]
 
         cut_polys = viewer.layers["cut_lines"].data
-        ext_polys = viewer.layers["extend_lines"].data
         ers_polys = viewer.layers["erase_lines"].data
 
-        has_ext = len(ext_polys) > 0
         has_ers = len(ers_polys) > 0
         has_cuts = len(cut_polys) > 0
-        any_edit = has_ext or has_ers or has_cuts
+        any_edit = has_ers or has_cuts
 
-        # 1) Apply extensions
-        if has_ext:
-            mask3d, n_added = extend_mask_3d(mask3d, ext_polys, EXTEND_THICKNESS, EXTEND_Z_DILATE)
-            print(f"  dend_{did}: extended by {n_added} voxels")
-
-        # 2) Apply erases
+        # 1) Apply erases
         if has_ers:
             mask3d, n_removed = erase_from_mask_3d(mask3d, ers_polys, ERASE_THICKNESS)
             print(f"  dend_{did}: erased {n_removed} voxels")
 
-        # 3) Post-edit cleanup (close small gaps, smooth edges)
+        # 2) Post-edit cleanup (close small gaps, smooth edges)
         if any_edit and POST_CLOSE_K > 0:
             mask3d = post_edit_cleanup(mask3d, POST_CLOSE_K)
 
         state["mask3d"] = mask3d
 
-        # 4) Apply cuts or save
+        # 3) Apply cuts or save
         if not any_edit:
             print(f"  dend_{did}: no edits, passing through")
             m = mask3d.astype(np.uint8)
@@ -561,18 +502,15 @@ def napari_cut(dend_ids=None):
             out_idx[0] = new_idx
             out_rows.extend(new_rows)
         else:
-            # Extend/erase only, no cuts — save the edited mask
-            tag = "extended" if has_ext else "erased"
-            if has_ext and has_ers:
-                tag = "edited"
-            print(f"  dend_{did}: {tag}, saving")
+            # Erase only, no cuts — save the edited mask
+            print(f"  dend_{did}: erased, saving")
             m = mask3d.astype(np.uint8)
             op = OUT_LABELS / f"dend_{out_idx[0]:03d}_labelmap.tif"
             bp = OUT_BGS / f"dend_{out_idx[0]:03d}_background_2dMIP.tif"
             tifffile.imwrite(op, (m * (out_idx[0] + 1)).astype(np.uint16))
             tifffile.imwrite(bp, bg2d.astype(np.float16))
             save_preview(m, bg2d, OUT_PREV / f"dend_{out_idx[0]:03d}_preview.png",
-                         f"dend_{out_idx[0]:03d} ({tag})")
+                         f"dend_{out_idx[0]:03d} (erased)")
             out_rows.append(_make_row(out_idx[0], op, bp, row,
                                       mask3d.sum() * VOXEL_VOL, did, False))
             out_idx[0] += 1
