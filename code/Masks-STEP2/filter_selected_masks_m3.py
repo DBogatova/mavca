@@ -40,8 +40,12 @@ BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2
 LABELMAP_FOLDER = BASE / "labelmaps_split"
 BGS_FOLDER      = BASE / "labelmap_backgrounds_split"
 
-# 3D background: use preprocessed smoothed stack (better Z contrast than raw)
-BG_STACK_PATH   = BASE / "preprocessed" / "stack_smoothed.tif"
+# 3D background: per-event temporal max from event crops
+EVENT_CROPS_FOLDER = BASE / "preprocessed" / "event_crops"
+# Try split manifest first, fall back to M2 manifest
+MANIFEST_PATH = BASE / "masks_manifest_split.csv"
+if not MANIFEST_PATH.exists():
+    MANIFEST_PATH = BASE / "masks_manifest.csv"
 USE_3D_BG       = True   # False = use 2D MIP backgrounds as before
 
 OUTPUT_FOLDER   = BASE / "labelmaps_curated_dynamic"
@@ -75,30 +79,34 @@ def load_data():
     for p in BGS_FOLDER.glob("dend_*_background_2dMIP.tif"):
         bg_map[stem_id(p)] = tifffile.imread(p).astype(np.float32)  # (Y,X)
 
-    # 3D background: temporal std-dev of preprocessed stack (highlights active structures)
-    bg3d_vol = None
-    if USE_3D_BG and BG_STACK_PATH.exists():
-        print(f"  Loading 3D background from {BG_STACK_PATH.name} ...")
-        store = tifffile.memmap(str(BG_STACK_PATH), mode='r')  # (T, Z, Y, X)
-        print(f"  Preprocessed stack shape: {store.shape}")
-        T = store.shape[0]
-        chunk_t = 50
-        # Welford online algorithm for mean + variance (one pass, low memory)
-        mean = np.zeros(store.shape[1:], dtype=np.float64)
-        m2   = np.zeros(store.shape[1:], dtype=np.float64)
-        n = 0
-        for t0 in range(0, T, chunk_t):
-            t1 = min(t0 + chunk_t, T)
-            chunk = np.asarray(store[t0:t1]).astype(np.float64)
-            for t in range(chunk.shape[0]):
-                n += 1
-                delta = chunk[t] - mean
-                mean += delta / n
-                m2   += delta * (chunk[t] - mean)
-            del chunk
-        bg3d_vol = np.sqrt(m2 / max(n - 1, 1)).astype(np.float32)
-        del mean, m2, store
-        print(f"  3D background (temporal std): {bg3d_vol.shape} (Z,Y,X)")
+    # 3D background: per-event temporal max from event crops
+    bg3d_map = {}  # name → (Z,Y,X) float32
+    if USE_3D_BG and MANIFEST_PATH.exists() and EVENT_CROPS_FOLDER.exists():
+        with open(MANIFEST_PATH, "r") as f:
+            rows = list(csv.DictReader(f))
+        # Map dend name → source event file
+        name_to_event = {}
+        for row in rows:
+            dend_id = int(row["dend_id"])
+            name = f"dend_{dend_id:03d}"
+            name_to_event[name] = row["source_event_file"]
+        # Load each unique event crop once, compute temporal max
+        event_cache = {}  # event_file → (Z,Y,X) float32
+        for name in names:
+            ev_file = name_to_event.get(name)
+            if ev_file is None:
+                continue
+            if ev_file not in event_cache:
+                ev_path = EVENT_CROPS_FOLDER / ev_file
+                if ev_path.exists():
+                    crop = tifffile.imread(str(ev_path)).astype(np.float32)
+                    # crop is (T,Z,Y,X) — take temporal max
+                    event_cache[ev_file] = crop.max(axis=0)
+                    del crop
+                    print(f"  Loaded event bg: {ev_file} → {event_cache[ev_file].shape}")
+            if ev_file in event_cache:
+                bg3d_map[name] = event_cache[ev_file]
+        print(f"  3D backgrounds: {len(bg3d_map)} masks from {len(event_cache)} events")
 
     # centroids in μm for NN search
     cents = []
@@ -112,7 +120,7 @@ def load_data():
             cents.append(np.array([cz*vz, cy*vy, cx*vx], dtype=float))
     cents = np.vstack(cents)
 
-    return masks, names, bg_map, cents, bg3d_vol
+    return masks, names, bg_map, cents, bg3d_map
 
 def broadcast_bg_2d_to_3d(bg2d, Z):
     return np.repeat(bg2d[None, ...], Z, axis=0)  # (Z,Y,X)
@@ -149,7 +157,7 @@ def save_curated(masks, names, deleted, edited):
 
 # ======= MAIN (Napari UI) =======
 def main():
-    masks, names, bg_map, cents, bg3d_vol = load_data()
+    masks, names, bg_map, cents, bg3d_map = load_data()
     N = len(masks)
     print(f"Loaded {N} masks.")
 
@@ -178,11 +186,11 @@ def main():
 
         # --- background ---
         if bg_on[0]:
-            if bg3d_vol is not None:
-                # Full 3D background (temporal std) — show entire FOV
-                bg3d = bg3d_vol
-                lo = float(np.percentile(bg3d, 5.0))
-                hi = float(np.percentile(bg3d, 99.8))
+            bg3d = bg3d_map.get(names[i])
+            if bg3d is not None:
+                # Per-event 3D background (temporal max of event crop)
+                lo = float(np.percentile(bg3d, 2.0))
+                hi = float(np.percentile(bg3d, 99.5))
                 if "bg" in v.layers:
                     img = v.layers["bg"]
                     img.data = bg3d
@@ -195,20 +203,21 @@ def main():
                         contrast_limits=(lo, hi), opacity=1.0,
                     )
             else:
-                bg2d = bg_map.get(names[i], None)
+                # Fallback: 2D MIP broadcast
+                bg2d = bg_map.get(names[i])
                 if bg2d is not None:
-                    bg3d = broadcast_bg_2d_to_3d(bg2d, Z)  # (Z,Y,X)
-                    lo = float(np.percentile(bg3d, 2.0))
-                    hi = float(np.percentile(bg3d, 99.5))
+                    bg3d_fb = broadcast_bg_2d_to_3d(bg2d, Z)
+                    lo = float(np.percentile(bg3d_fb, 2.0))
+                    hi = float(np.percentile(bg3d_fb, 99.5))
                     if "bg" in v.layers:
                         img = v.layers["bg"]
-                        img.data = bg3d
+                        img.data = bg3d_fb
                         img.contrast_limits = (lo, hi)
                         img.visible = True
                         img.opacity = 1.0
                     else:
                         v.add_image(
-                            bg3d, name="bg", blending="additive", colormap="gray",
+                            bg3d_fb, name="bg", blending="additive", colormap="gray",
                             contrast_limits=(lo, hi), opacity=1.0,
                         )
                 else:
