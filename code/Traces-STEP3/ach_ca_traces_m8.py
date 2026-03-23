@@ -35,8 +35,8 @@ mpl.rcParams['axes.unicode_minus'] = False
 mpl.rcParams['mathtext.default'] = 'regular'
 
 # ========= CONFIG =========
-DATE = "2025-12-25"
-MOUSE = "rAi162_phpeb"
+DATE = "2026-02-24"
+MOUSE = "rAi162_42_phpeb"
 RUN = "run1"
 
 FRAME_RATE   = 5    # Hz
@@ -68,8 +68,8 @@ ACH_MIN_MAX = 1e-12
 PROJECT_ROOT = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025")
 BASE = PROJECT_ROOT / "scape-data" / DATE / MOUSE / RUN
 
-RAW_CA_PATH  = BASE / "raw" / f"runA_{RUN}_{MOUSE}_green.tif"
-RAW_ACH_PATH = BASE / "raw" / f"runA_{RUN}_{MOUSE}_red.tif"
+RAW_CA_PATH  = BASE / "raw" / f"runA_{RUN}_{MOUSE}-reslice-bin-frames-removed-green.tif"
+RAW_ACH_PATH = BASE / "raw" / f"runA_{RUN}_{MOUSE}-reslice-bin-frames-removed-red.tif"
 
 MASK_FOLDER  = BASE / "labelmaps_curated_dynamic"
 

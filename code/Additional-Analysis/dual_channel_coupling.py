@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Dual-Channel Ca–ACh Coupling Analysis  (4-block version with PC0 removal)
+Dual-Channel Ca-ACh Coupling Analysis  (with PC0 removal)
 
 Preprocessing: ΔF/F with fast gaussian baseline, then optional low/high split.
 When --remove-pc0 is set, runs all analyses twice: once on raw ΔF/F, once after
@@ -33,25 +33,25 @@ from scipy.ndimage import gaussian_filter, gaussian_filter1d
 from tqdm import tqdm
 
 # ================== CONFIG ==================
-DATE = "2025-12-02"
-MOUSE = "rbp4cre_136_phpeb"
-RUN = "run4"
+DATE = "2026-02-24"
+MOUSE = "rAi162_42_phpeb"
+RUN = "run5"
 FS_HZ = 5.0
 VOXEL_SIZE = (3.9, 1.0, 1.2)  # Z, Y, X µm
 
 BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/"
             "apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
-RAW_CA  = BASE / "raw" / f"runA_{RUN}_{MOUSE}_binimagej_reslice_green.tif"
-RAW_ACH = BASE / "raw" / f"runA_{RUN}_{MOUSE}_binimagej_reslice_red.tif"
+RAW_CA  = BASE / "raw" / f"runA_{RUN}_{MOUSE}-reslice-bin-green.tif"
+RAW_ACH = BASE / "raw" / f"runA_{RUN}_{MOUSE}-reslice-bin-red.tif"
 MASK_FOLDER = BASE / "labelmaps_curated_dynamic"
 
 BASELINE_SIGMA = 150       # frames for gaussian baseline (~30 s)
 
 SPATIAL_SIGMA = (0, 0.5, 1.0, 1.0)
 
-MAX_LAG_SEC = 2.0
+MAX_LAG_SEC = 1.0
 SLAB_Z = 4
-N_PCS = 6
+N_PCS = 20
 PCA_DS = 2
 
 
@@ -63,9 +63,13 @@ def parse_args():
     p.add_argument("--view", action="store_true")
     p.add_argument("--y-crop", type=int, default=0)
     p.add_argument("--skip-first-seconds", type=float, default=7.0)
+    p.add_argument("--crop-last-seconds", type=float, default=0.0,
+                   help="Remove last N seconds from recording")
     p.add_argument("--spatial-smooth", action="store_true")
     p.add_argument("--remove-pc0", action="store_true",
                    help="Run analyses twice: with and without PC0")
+    p.add_argument("--ica", action="store_true",
+                   help="Run ICA on PCA scores (PCA → FastICA)")
     p.add_argument("--n-shuffles", type=int, default=1)
     return p.parse_args()
 
@@ -88,39 +92,53 @@ def load_dendrite_mask(shape_zyx):
     return union
 
 # ================== PREPROCESSING ==================
-def skip_crop_align(ca, ach, skip_sec, y_crop):
+def skip_crop_align(ca, ach, skip_sec, y_crop, crop_last_sec=0.0):
     if ca.shape != ach.shape:
         T = min(ca.shape[0], ach.shape[0])
         ca, ach = ca[:T], ach[:T]
     skip = int(skip_sec * FS_HZ)
     if skip > 0:
         ca, ach = ca[skip:], ach[skip:]
-        print(f"  Skipped {skip_sec}s ({skip} frames)")
+        print(f"  Skipped first {skip_sec}s ({skip} frames)")
+    if crop_last_sec > 0:
+        drop = int(crop_last_sec * FS_HZ)
+        if drop > 0 and drop < ca.shape[0]:
+            ca, ach = ca[:-drop], ach[:-drop]
+            print(f"  Cropped last {crop_last_sec}s ({drop} frames) → T={ca.shape[0]}")
     if y_crop > 0:
         ca, ach = ca[:,:,:-y_crop,:], ach[:,:,:-y_crop,:]
         print(f"  Y-cropped bottom {y_crop} → Y={ca.shape[2]}")
     return ca, ach
 
-def detrend_dff(stack):
-    """ΔF/F with gaussian baseline."""
-    baseline = gaussian_filter1d(stack, sigma=BASELINE_SIGMA, axis=0)
-    return ((stack - baseline) / (baseline + 1e-6)).astype(np.float32)
+def detrend_dff(stack, label=""):
+    """ΔF/F with gaussian baseline, computed slab-by-slab to save memory."""
+    T, Z, Y, X = stack.shape
+    out = np.empty_like(stack)
+    for z0, z1 in tqdm(list(_slab_ranges(Z, SLAB_Z)), desc=f"  ΔF/F {label}"):
+        slab = stack[:, z0:z1]
+        baseline = gaussian_filter1d(slab, sigma=BASELINE_SIGMA, axis=0)
+        out[:, z0:z1] = ((slab - baseline) / (baseline + 1e-6)).astype(np.float32)
+        del baseline
+    return out
 
 
 
 
 def preprocess(ca_raw, ach_raw, args):
-    """Returns ca_dff, ach_dff (full ΔF/F stacks)."""
+    """Returns ca_dff, ach_dff. Overwrites raw arrays in-place to save memory."""
     print("Preprocessing...")
     if args.spatial_smooth:
-        print("  Spatial smooth...")
-        ca_raw = gaussian_filter(ca_raw, sigma=SPATIAL_SIGMA)
-        ach_raw = gaussian_filter(ach_raw, sigma=SPATIAL_SIGMA)
-    print("  Ca ΔF/F...")
-    ca_dff = detrend_dff(ca_raw)
-    print("  ACh ΔF/F...")
-    ach_dff = detrend_dff(ach_raw)
-    del ca_raw, ach_raw; gc.collect()
+        print("  Spatial smooth (slab-wise)...")
+        T, Z, Y, X = ca_raw.shape
+        for z0, z1 in _slab_ranges(Z, SLAB_Z):
+            ca_raw[:, z0:z1] = gaussian_filter(ca_raw[:, z0:z1], sigma=SPATIAL_SIGMA)
+            ach_raw[:, z0:z1] = gaussian_filter(ach_raw[:, z0:z1], sigma=SPATIAL_SIGMA)
+    print("  Ca ΔF/F (slab-wise)...")
+    ca_dff = detrend_dff(ca_raw, "Ca")
+    del ca_raw; gc.collect()
+    print("  ACh ΔF/F (slab-wise)...")
+    ach_dff = detrend_dff(ach_raw, "ACh")
+    del ach_raw; gc.collect()
     return ca_dff, ach_dff
 
 def remove_pc0(stack, label=""):
@@ -371,9 +389,9 @@ def run_pca(ca, ach, out):
     # Spatial MIP plots
     for ch, comps, var in [("Ca",pca_ca.components_,pca_ca.explained_variance_ratio_),
                             ("ACh",pca_ach.components_,pca_ach.explained_variance_ratio_)]:
-        fig, axes = plt.subplots(2,3, figsize=(12,7))
-        for k in range(min(N_PCS,6)):
-            ax = axes[k//3, k%3]
+        fig, axes = plt.subplots(4,5, figsize=(20,12))
+        for k in range(min(N_PCS,20)):
+            ax = axes[k//5, k%5]
             mip = comps[k].reshape(Zd,Yd,Xd).max(0)
             vm = np.percentile(np.abs(mip), 99)
             ax.imshow(mip, cmap="RdBu_r", vmin=-vm, vmax=vm, aspect="auto")
@@ -392,13 +410,93 @@ def run_pca(ca, ach, out):
     fig.tight_layout(); fig.savefig(out/"pca_timecourses.png", dpi=200); plt.close(fig)
 
     # Cross-corr matrix
-    fig, ax = plt.subplots(figsize=(5,4))
+    fig, ax = plt.subplots(figsize=(8,7))
     im = ax.imshow(cc, cmap="RdBu_r", vmin=-1, vmax=1)
     ax.set_xticks(range(N_PCS)); ax.set_xticklabels([f"ACh{i}" for i in range(N_PCS)], rotation=45, ha="right")
     ax.set_yticks(range(N_PCS)); ax.set_yticklabels([f"Ca{i}" for i in range(N_PCS)])
     plt.colorbar(im, ax=ax, label="r"); ax.set_title("Ca PC × ACh PC")
     fig.tight_layout(); fig.savefig(out/"pca_cross_correlation.png", dpi=200); plt.close(fig)
     print(f"  Saved PCA to {out}")
+
+def run_ica(ca, ach, out):
+    """ICA: PCA dimensionality reduction → FastICA for independent sources."""
+    from sklearn.decomposition import PCA, FastICA
+    print("\n=== BLOCK 3b: ICA (PCA → FastICA) ===")
+    T = ca.shape[0]; ds = PCA_DS
+    ca_ds = ca[:,::ds,::ds,::ds]; ach_ds = ach[:,::ds,::ds,::ds]
+    _, Zd, Yd, Xd = ca_ds.shape
+    n_vox = Zd * Yd * Xd
+
+    for ch, stack_ds in [("ca", ca_ds), ("ach", ach_ds)]:
+        flat = stack_ds.reshape(T, -1)
+        # PCA first for dimensionality reduction
+        print(f"  {ch}: PCA ({n_vox} vox → {N_PCS} PCs)...")
+        pca = PCA(n_components=N_PCS).fit(flat)
+        scores = pca.transform(flat)
+        cum_var = np.cumsum(pca.explained_variance_ratio_)
+        print(f"  {ch}: PCA cumulative variance: {cum_var[-1]:.1%}")
+
+        # FastICA on PCA scores
+        print(f"  {ch}: FastICA ({N_PCS} ICs)...")
+        ica = FastICA(n_components=N_PCS, max_iter=500, random_state=42)
+        ic_scores = ica.fit_transform(scores)  # (T, N_PCS)
+        # Spatial maps: project ICA unmixing back to voxel space
+        # mixing_ is (N_PCS, N_PCS), components from PCA are (N_PCS, n_vox)
+        ic_spatial = ica.components_ @ pca.components_  # (N_PCS, n_vox)
+
+        # Sort ICs by kurtosis (spikier = more interesting)
+        from scipy.stats import kurtosis
+        kurt = np.array([kurtosis(ic_scores[:, k]) for k in range(N_PCS)])
+        order = np.argsort(kurt)[::-1]
+        ic_scores = ic_scores[:, order]
+        ic_spatial = ic_spatial[order]
+        kurt = kurt[order]
+
+        # Save tifs
+        for k in range(N_PCS):
+            tifffile.imwrite(out / f"ica_{ch}_ic{k:02d}_spatial.tif",
+                             ic_spatial[k].reshape(Zd, Yd, Xd).astype(np.float32))
+        np.savez(out / f"ica_{ch}_timecourses.npz",
+                 scores=ic_scores, kurtosis=kurt,
+                 pca_var=pca.explained_variance_ratio_)
+
+        # Spatial MIP plots
+        ncols = 5; nrows = (N_PCS + ncols - 1) // ncols
+        fig, axes = plt.subplots(nrows, ncols, figsize=(20, 3 * nrows))
+        axes = axes.ravel()
+        for k in range(N_PCS):
+            mip = ic_spatial[k].reshape(Zd, Yd, Xd).max(0)
+            vm = np.percentile(np.abs(mip), 99)
+            axes[k].imshow(mip, cmap="RdBu_r", vmin=-vm, vmax=vm, aspect="auto")
+            axes[k].set_title(f"IC{k} (kurt={kurt[k]:.1f})"); axes[k].axis("off")
+        for k in range(N_PCS, len(axes)):
+            axes[k].axis("off")
+        fig.suptitle(f"{ch.upper()} ICA Spatial (Z-MIP)")
+        fig.tight_layout(); fig.savefig(out / f"ica_{ch}_spatial_mip.png", dpi=200); plt.close(fig)
+
+        # Timecourses
+        t = np.arange(T) / FS_HZ
+        fig, axes_t = plt.subplots(N_PCS, 1, figsize=(14, 2 * N_PCS), sharex=True)
+        color = "green" if ch == "ca" else "red"
+        for k in range(N_PCS):
+            axes_t[k].plot(t, ic_scores[:, k], color=color, lw=.8)
+            axes_t[k].set_ylabel(f"IC{k}")
+        axes_t[-1].set_xlabel("Time (s)")
+        fig.suptitle(f"{ch.upper()} ICA Timecourses (sorted by kurtosis)")
+        fig.tight_layout(); fig.savefig(out / f"ica_{ch}_timecourses.png", dpi=200); plt.close(fig)
+
+    # Cross-correlation: Ca ICs vs ACh ICs
+    ca_ic = np.load(out / "ica_ca_timecourses.npz")["scores"]
+    ach_ic = np.load(out / "ica_ach_timecourses.npz")["scores"]
+    cc = np.array([[np.corrcoef(ca_ic[:, i], ach_ic[:, j])[0, 1]
+                     for j in range(N_PCS)] for i in range(N_PCS)], np.float32)
+    fig, ax = plt.subplots(figsize=(8, 7))
+    im = ax.imshow(cc, cmap="RdBu_r", vmin=-1, vmax=1)
+    ax.set_xticks(range(N_PCS)); ax.set_xticklabels([f"ACh{i}" for i in range(N_PCS)], rotation=45, ha="right")
+    ax.set_yticks(range(N_PCS)); ax.set_yticklabels([f"Ca{i}" for i in range(N_PCS)])
+    plt.colorbar(im, ax=ax, label="r"); ax.set_title("Ca IC × ACh IC")
+    fig.tight_layout(); fig.savefig(out / "ica_cross_correlation.png", dpi=200); plt.close(fig)
+    print(f"  Saved ICA to {out}")
 
 
 
@@ -511,7 +609,7 @@ def view_results():
 
 
 # ================== RUN ALL BLOCKS ==================
-def run_all_blocks(ca, ach, out, only, dendrite_mask, n_shuffles):
+def run_all_blocks(ca, ach, out, only, dendrite_mask, n_shuffles, do_ica=False):
     """Run requested blocks, save to `out` folder."""
     out.mkdir(parents=True, exist_ok=True)
     plot_global_traces(ca, ach, out)
@@ -523,6 +621,8 @@ def run_all_blocks(ca, ach, out, only, dendrite_mask, n_shuffles):
         regr_res = run_regression(ca, ach, out)
     if only is None or only == "pca":
         run_pca(ca, ach, out)
+        if do_ica:
+            run_ica(ca, ach, out)
     if only is None:
         run_controls(ca, ach, regr_res, dendrite_mask, out, n_shuffles)
 
@@ -541,12 +641,13 @@ def main():
     if args.view: view_results(); return
 
     t0 = time.time()
-    print(f"=== Ca–ACh Coupling (4-block) ===")
+    print(f"=== Ca-ACh Coupling (4-block) ===")
     print(f"    {DATE} | {MOUSE} | {RUN}\n")
 
     ca_raw = load_4d(RAW_CA); ach_raw = load_4d(RAW_ACH)
     ca_raw, ach_raw = skip_crop_align(ca_raw, ach_raw,
-                                       args.skip_first_seconds, args.y_crop)
+                                       args.skip_first_seconds, args.y_crop,
+                                       args.crop_last_seconds)
     T, Z, Y, X = ca_raw.shape
     print(f"  Shape: T={T} Z={Z} Y={Y} X={X}\n")
 
@@ -560,17 +661,20 @@ def main():
     print(f"\n{'='*60}")
     print(f"  PASS 1: Standard ΔF/F → {out1}")
     print(f"{'='*60}")
-    run_all_blocks(ca_dff, ach_dff, out1, args.only, dendrite_mask, args.n_shuffles)
+    run_all_blocks(ca_dff, ach_dff, out1, args.only, dendrite_mask, args.n_shuffles, args.ica)
 
     # --- Pass 2: PC0 removed (if requested) ---
     if args.remove_pc0:
         print(f"\n{'='*60}")
         print(f"  PASS 2: PC0 removed → coupling_analysis_nopc0")
         print(f"{'='*60}")
-        ca_nopc = remove_pc0(ca_dff.copy(), "Ca")
-        ach_nopc = remove_pc0(ach_dff.copy(), "ACh")
+        # Remove PC0 in-place on copies; free pass-1 data first if possible
+        ca_nopc = ca_dff.copy(); del ca_dff; gc.collect()
+        ca_nopc = remove_pc0(ca_nopc, "Ca")
+        ach_nopc = ach_dff.copy(); del ach_dff; gc.collect()
+        ach_nopc = remove_pc0(ach_nopc, "ACh")
         out2 = BASE / "coupling_analysis_nopc0"
-        run_all_blocks(ca_nopc, ach_nopc, out2, args.only, dendrite_mask, args.n_shuffles)
+        run_all_blocks(ca_nopc, ach_nopc, out2, args.only, dendrite_mask, args.n_shuffles, args.ica)
         del ca_nopc, ach_nopc; gc.collect()
 
     print(f"\n=== Done in {time.time()-t0:.0f}s ===")

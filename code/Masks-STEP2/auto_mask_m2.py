@@ -36,9 +36,9 @@ from skimage.filters import sato
 from tqdm import tqdm
 
 # ================== CONFIG ==================
-DATE = "2025-12-02"
-MOUSE = "rbp4cre_136_phpeb"
-RUN = "run4"
+DATE = "2026-03-20"
+MOUSE = "rbp4cre_139_phpeb"
+RUN = "run3"
 
 BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
 EVENT_FOLDER = BASE / "preprocessed" / "event_crops"

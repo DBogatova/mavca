@@ -61,9 +61,9 @@ from tqdm import tqdm
 
 
 # ================== CONFIG ==================
-DATE = "2025-12-02"
+DATE = "2026-02-09"
 MOUSE = "rbp4cre_136_phpeb"
-RUN = "run4"
+RUN = "run1"
 
 BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
 
@@ -87,11 +87,11 @@ GUIDE_DISTANCE_THRESHOLD = 20.0        # pixels: max distance from guide polylin
 
 # Outputs
 suffix = "_guided" if USE_GUIDES else ""
-OUT_LABELS   = BASE / f"labelmaps-test{suffix}"
-OUT_PREV     = BASE / f"labelmap_previews-test{suffix}"
-OUT_BGS_MASK = BASE / f"labelmap_backgrounds-test{suffix}"
-OUT_BG_EVENT = BASE / f"event_crops_bg-test{suffix}"
-MANIFEST     = BASE / f"masks_manifest-test{suffix}.csv"
+OUT_LABELS   = BASE / f"labelmaps{suffix}"
+OUT_PREV     = BASE / f"labelmap_previews{suffix}"
+OUT_BGS_MASK = BASE / f"labelmap_backgrounds{suffix}"
+OUT_BG_EVENT = BASE / f"event_crops_bg{suffix}"
+MANIFEST     = BASE / f"masks_manifest{suffix}.csv"
 
 for p in (OUT_LABELS, OUT_PREV, OUT_BGS_MASK, OUT_BG_EVENT):
     p.mkdir(parents=True, exist_ok=True)

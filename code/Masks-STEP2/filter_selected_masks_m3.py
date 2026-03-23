@@ -25,9 +25,9 @@ from scipy.spatial.distance import cdist
 import csv
 
 # ======= CONFIG =======
-DATE = "2025-12-02"
-MOUSE = "rbp4cre_136_phpeb"
-RUN = "run4"
+DATE = "2026-03-20"
+MOUSE = "rbp4cre_139_phpeb"
+RUN = "run3"
 
 VOXEL_SIZE = (3.9, 1.0, 1.2)  # (Z,Y,X) μm
 NEIGHBOR_K_DEFAULT = 3
@@ -39,6 +39,10 @@ BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2
 # Input: split output from M2b (change to "labelmaps" / "labelmap_backgrounds" to use raw M2 output)
 LABELMAP_FOLDER = BASE / "labelmaps_split"
 BGS_FOLDER      = BASE / "labelmap_backgrounds_split"
+
+# 3D background: use preprocessed smoothed stack (better Z contrast than raw)
+BG_STACK_PATH   = BASE / "preprocessed" / "stack_smoothed.tif"
+USE_3D_BG       = True   # False = use 2D MIP backgrounds as before
 
 OUTPUT_FOLDER   = BASE / "labelmaps_curated_dynamic"
 OUTPUT_FOLDER.mkdir(parents=True, exist_ok=True)
@@ -56,10 +60,45 @@ def load_data():
     masks = [tifffile.imread(p).astype(np.uint8) for p in mask_paths]
     names = [stem_id(p) for p in mask_paths]
 
-    # backgrounds: dend_XXX_background_2dMIP.tif
+    # Connected component check: warn and keep largest if multiple pieces
+    for i, (m, name) in enumerate(zip(masks, names)):
+        labeled, n = label(m > 0, return_num=True)
+        if n > 1:
+            sizes = [(labeled == lbl).sum() for lbl in range(1, n + 1)]
+            biggest = np.argmax(sizes) + 1
+            print(f"  ⚠️  {name}: {n} disconnected components "
+                  f"(sizes: {sorted(sizes, reverse=True)}), keeping largest")
+            masks[i] = ((labeled == biggest) * 1).astype(np.uint8)
+
+    # backgrounds: 2D MIP fallback
     bg_map = {}
     for p in BGS_FOLDER.glob("dend_*_background_2dMIP.tif"):
         bg_map[stem_id(p)] = tifffile.imread(p).astype(np.float32)  # (Y,X)
+
+    # 3D background: temporal std-dev of preprocessed stack (highlights active structures)
+    bg3d_vol = None
+    if USE_3D_BG and BG_STACK_PATH.exists():
+        print(f"  Loading 3D background from {BG_STACK_PATH.name} ...")
+        store = tifffile.memmap(str(BG_STACK_PATH), mode='r')  # (T, Z, Y, X)
+        print(f"  Preprocessed stack shape: {store.shape}")
+        T = store.shape[0]
+        chunk_t = 50
+        # Welford online algorithm for mean + variance (one pass, low memory)
+        mean = np.zeros(store.shape[1:], dtype=np.float64)
+        m2   = np.zeros(store.shape[1:], dtype=np.float64)
+        n = 0
+        for t0 in range(0, T, chunk_t):
+            t1 = min(t0 + chunk_t, T)
+            chunk = np.asarray(store[t0:t1]).astype(np.float64)
+            for t in range(chunk.shape[0]):
+                n += 1
+                delta = chunk[t] - mean
+                mean += delta / n
+                m2   += delta * (chunk[t] - mean)
+            del chunk
+        bg3d_vol = np.sqrt(m2 / max(n - 1, 1)).astype(np.float32)
+        del mean, m2, store
+        print(f"  3D background (temporal std): {bg3d_vol.shape} (Z,Y,X)")
 
     # centroids in μm for NN search
     cents = []
@@ -73,7 +112,7 @@ def load_data():
             cents.append(np.array([cz*vz, cy*vy, cx*vx], dtype=float))
     cents = np.vstack(cents)
 
-    return masks, names, bg_map, cents
+    return masks, names, bg_map, cents, bg3d_vol
 
 def broadcast_bg_2d_to_3d(bg2d, Z):
     return np.repeat(bg2d[None, ...], Z, axis=0)  # (Z,Y,X)
@@ -110,7 +149,7 @@ def save_curated(masks, names, deleted, edited):
 
 # ======= MAIN (Napari UI) =======
 def main():
-    masks, names, bg_map, cents = load_data()
+    masks, names, bg_map, cents, bg3d_vol = load_data()
     N = len(masks)
     print(f"Loaded {N} masks.")
 
@@ -139,11 +178,11 @@ def main():
 
         # --- background ---
         if bg_on[0]:
-            bg2d = bg_map.get(names[i], None)
-            if bg2d is not None:
-                bg3d = broadcast_bg_2d_to_3d(bg2d, Z)  # (Z,Y,X)
-                lo = float(np.percentile(bg3d, 2.0))
-                hi = float(np.percentile(bg3d, 99.5))
+            if bg3d_vol is not None:
+                # Full 3D background (temporal std) — show entire FOV
+                bg3d = bg3d_vol
+                lo = float(np.percentile(bg3d, 5.0))
+                hi = float(np.percentile(bg3d, 99.8))
                 if "bg" in v.layers:
                     img = v.layers["bg"]
                     img.data = bg3d
@@ -156,8 +195,25 @@ def main():
                         contrast_limits=(lo, hi), opacity=1.0,
                     )
             else:
-                if "bg" in v.layers:
-                    v.layers["bg"].visible = False
+                bg2d = bg_map.get(names[i], None)
+                if bg2d is not None:
+                    bg3d = broadcast_bg_2d_to_3d(bg2d, Z)  # (Z,Y,X)
+                    lo = float(np.percentile(bg3d, 2.0))
+                    hi = float(np.percentile(bg3d, 99.5))
+                    if "bg" in v.layers:
+                        img = v.layers["bg"]
+                        img.data = bg3d
+                        img.contrast_limits = (lo, hi)
+                        img.visible = True
+                        img.opacity = 1.0
+                    else:
+                        v.add_image(
+                            bg3d, name="bg", blending="additive", colormap="gray",
+                            contrast_limits=(lo, hi), opacity=1.0,
+                        )
+                else:
+                    if "bg" in v.layers:
+                        v.layers["bg"].visible = False
         else:
             if "bg" in v.layers:
                 v.layers["bg"].visible = False
@@ -187,6 +243,10 @@ def main():
             v.add_labels(np.zeros_like(masks[i], np.uint8), name="draw", opacity=0.6)
 
         print(f"🔎 Focus: {names[i]} | neighbors: {', '.join([names[n] for n in neigh])}")
+
+    def _autosave():
+        """Save after every action so no work is lost."""
+        save_curated(masks, names, deleted, edited)
 
     # --- Navigation ---
     @v.bind_key("Right")
@@ -229,11 +289,13 @@ def main():
     def _delete(viewer):
         deleted.add(idx[0])
         print(f"❌ Deleted: {names[idx[0]]}")
+        _autosave()
         _next(viewer)
 
     @v.bind_key("k")
     def _keep(viewer):
         print(f"✅ Kept: {names[idx[0]]}")
+        _autosave()
         _next(viewer)
 
     # Reset draw
@@ -252,6 +314,7 @@ def main():
         draw = (v.layers["draw"].data > 0)
         edited[i] = mask_union(base, draw)
         print(f"🟣 Merged PAINT into {names[i]}")
+        _autosave()
         refresh_scene()
 
     @v.bind_key("x")
@@ -261,6 +324,7 @@ def main():
         draw = (v.layers["draw"].data > 0)
         edited[i] = mask_subtract(base, draw)
         print(f"✂️ Subtracted PAINT from {names[i]}")
+        _autosave()
         refresh_scene()
 
     # Neighbor helpers
@@ -280,6 +344,7 @@ def main():
         edited[i] = mask_union(a, b)
         deleted.add(j)  # Remove merged neighbor
         print(f"🧩 MERGE neighbor#{n} ({names[j]}) → {names[i]} (neighbor deleted)")
+        _autosave()
         refresh_scene()
 
     def subtract_neighbor(n):
@@ -291,6 +356,7 @@ def main():
         b = edited.get(j, masks[j])
         edited[i] = mask_subtract(a, b)
         print(f"➖ SUBTRACT neighbor#{n} ({names[j]}) from {names[i]}")
+        _autosave()
         refresh_scene()
 
     # Merge neighbors with q/w/r keys

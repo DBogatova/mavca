@@ -26,12 +26,12 @@ import gc
 mpl.rcParams['font.family'] = 'CMU Serif'
 
 # === CONFIGURATION ===
-DATE = "2025-12-02"
-MOUSE = "rbp4cre_136_phpeb"
-RUN = "run4"
+DATE = "2026-03-20"
+MOUSE = "rbp4cre_139_phpeb"
+RUN = "run3"
 
 # Acquisition
-FS_HZ = 6.0  # frames per second
+FS_HZ = 5.0  # frames per second
 
 # Time trimming
 SKIP_FIRST_SECONDS = 0.0  # Set to 7.0 to remove first 7 seconds
@@ -49,7 +49,7 @@ MIN_PROMINENCE = 1.0      # Minimum prominence in MAD units
 
 # === PATHS ===
 BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
-RAW_ORIG_PATH = BASE / "raw" / f"runA_{RUN}_{MOUSE}_binimagej_reslice_green.tif"
+RAW_ORIG_PATH = BASE / "raw" / f"runA_{RUN}_{MOUSE}-reslice-bin.tif"
 RAW_CLEAN_PATH = BASE / "preprocessed" / "raw_clean.tif"
 RAW_STACK_PATH = RAW_CLEAN_PATH if RAW_CLEAN_PATH.exists() else RAW_ORIG_PATH
 
