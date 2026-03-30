@@ -38,14 +38,14 @@ from tqdm import tqdm
 # ================== CONFIG ==================
 DATE = "2026-03-20"
 MOUSE = "rbp4cre_139_phpeb"
-RUN = "run3"
+RUN = "run1"
 
 BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
 EVENT_FOLDER = BASE / "preprocessed" / "event_crops"
-OUT_LABELS   = BASE / "labelmaps"
-OUT_PREV     = BASE / "labelmap_previews"
-OUT_BGS      = BASE / "labelmap_backgrounds"   # 2D backgrounds for viz
-MANIFEST     = BASE / "masks_manifest.csv"
+OUT_LABELS   = BASE / "labelmaps_guided"
+OUT_PREV     = BASE / "labelmap_previews_guided"
+OUT_BGS      = BASE / "labelmap_backgrounds_guided"   # 2D backgrounds for viz
+MANIFEST     = BASE / "masks_manifest_guided.csv"
 for p in (OUT_LABELS, OUT_PREV, OUT_BGS):
     p.mkdir(parents=True, exist_ok=True)
 
@@ -92,8 +92,8 @@ MAX_FRAME_GAP = 1
 MIN_EVENT_LENGTH = 1               # allow even very brief events
 
 # ---- Volume gates (μm³) ----
-MIN_VOL = 4000.0                    # keep small dendrites
-MAX_VOL = None                    # None → no upper cap
+MIN_VOL = 8000.0                    # keep small dendrites
+MAX_VOL = None                  # None → no upper cap
 
 # ---- Geometry filters (relaxed - to remove specks) ----
 USE_GEOMETRY_FILTER = True

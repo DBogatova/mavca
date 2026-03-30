@@ -28,7 +28,7 @@ mpl.rcParams['font.family'] = 'CMU Serif'
 # === CONFIGURATION ===
 DATE = "2026-03-20"
 MOUSE = "rbp4cre_139_phpeb"
-RUN = "run3"
+RUN = "run1"
 
 # Acquisition
 FS_HZ = 5.0  # frames per second

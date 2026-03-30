@@ -33,9 +33,10 @@ mpl.rcParams['font.family'] = 'CMU Serif'
 mpl.rcParams['axes.unicode_minus'] = False
 
 # ===== CONFIG =====
-DATE = "2026-02-24"
-MOUSE = "rAi162_42_phpeb"
+DATE = "2026-03-20"
+MOUSE = "rbp4cre_139_phpeb"
 RUN = "run1"
+
 FRAME_RATE = 5  # Hz
 ARTIFACT_Z = -0.5  # replace ΔF/F < -0.5 with 0 (before smoothing)
 SMOOTH_SIGMA = 0.5  # for gaussian_filter1d
@@ -46,7 +47,7 @@ CHUNK_T = 118  # time frames per chunk for memory efficiency
 PROJECT_ROOT = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025")
 BASE = PROJECT_ROOT / "scape-data" / DATE / MOUSE / RUN
 RAW_CLEAN_PATH = BASE / "preprocessed" / "raw_clean.tif"
-RAW_ORIG_PATH = BASE / "raw" / f"runA_run1_rAi162_42_phpeb-reslice-bin-frames-removed-green.tif"
+RAW_ORIG_PATH = BASE / "raw" / f"runA_run1_rbp4cre_139_phpeb-reslice-bin.tif"
 RAW_STACK_PATH = RAW_CLEAN_PATH if RAW_CLEAN_PATH.exists() else RAW_ORIG_PATH
 MASK_FOLDER = BASE / "labelmaps_curated_dynamic"
 TRACE_FOLDER = BASE / "traces"; TRACE_FOLDER.mkdir(exist_ok=True)

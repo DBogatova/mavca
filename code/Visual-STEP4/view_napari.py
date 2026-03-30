@@ -11,14 +11,19 @@ import matplotlib.cm as cm
 from pathlib import Path
 
 # ---- Config ----
-STACK_PATH = "/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/data/2025-10-29/rAi162_15/run1-crop/overlays/chunk_01_0000-0600_dff.tif"
+STACK_PATH = "/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data/2026-03-20/rbp4cre_139_phpeb/run1/overlays/chunk_01_0000-0575_dff.tif"
 
 # (T, Z, Y, X): time left as frames; spatial voxels in µm
-VOXEL_SCALE = (1.0, 4.7, 1.0, 1.2)  # T, Z, Y, X
+VOXEL_SCALE = (1.0, 3.9, 1.0, 1.2)  # T, Z, Y, X
 
 print(f"Loading: {STACK_PATH}")
 stack = tifffile.imread(STACK_PATH)
 print(f"Stack shape: {stack.shape}")  # (T, Z, Y, X)
+
+# Clip low values to black — removes noise speckles when nothing fires
+NOISE_FLOOR = 0.00  # ΔF/F below this → 0 (adjust if needed)
+stack = np.clip(stack, NOISE_FLOOR, None) - NOISE_FLOOR
+
 _, Z, Y, X = stack.shape
 
 # Print ΔF/F value range for colorbar reference
@@ -106,6 +111,10 @@ viewer.scale_bar.position = "bottom_right"
 viewer.scale_bar.color = "white"
 viewer.scale_bar.ticks = True  # show tick marks
 viewer.scale_bar.font_size = 10
+
+# ---- Playback speed ----
+# Napari default is 10 fps. Change to 5 in the play controls
+# (click play button → adjust fps spinbox next to it)
 
 
 print(f"\nColorbar range: {contrast_min:.1%} to {contrast_max:.1%} fluorescence change")

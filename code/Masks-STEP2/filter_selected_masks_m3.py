@@ -27,7 +27,7 @@ import csv
 # ======= CONFIG =======
 DATE = "2026-03-20"
 MOUSE = "rbp4cre_139_phpeb"
-RUN = "run3"
+RUN = "run1"
 
 VOXEL_SIZE = (3.9, 1.0, 1.2)  # (Z,Y,X) μm
 NEIGHBOR_K_DEFAULT = 3
