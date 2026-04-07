@@ -15,9 +15,9 @@ import numpy as np
 import tifffile
 
 # ===== CONFIG =====
-DATE = "2026-03-20"
-MOUSE = "rbp4cre_139_phpeb"
-RUN = "run3"
+DATE = "2026-03-31"
+MOUSE = "rbp4_132_phpeb"
+RUN = "run8"
 
 Y_CROP = 0  # crop bottom N rows of Y (0 = no crop)
 CHUNK_T = 50  # frames per chunk for memory efficiency
@@ -25,7 +25,7 @@ CHUNK_T = 50  # frames per chunk for memory efficiency
 # ===== PATHS =====
 BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/"
             "apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
-STACK_PATH = BASE / "overlays" / "chunk_01_0000-0575_dff.tif"
+STACK_PATH = BASE / "overlays" / "chunk_01_0000-0600_dff.tif"
 MASK_FOLDER = BASE / "labelmaps_curated_dynamic"
 OUTPUT_PATH = BASE / "overlays" / "static_masked_max_over_time.tif"
 

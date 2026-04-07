@@ -41,9 +41,9 @@ from scipy.ndimage import gaussian_filter
 # =========================
 # CONFIG
 # =========================
-DATE = "2026-03-20"
-MOUSE = "rbp4cre_139_phpeb"
-RUN = "run1"
+DATE = "2026-03-31"
+MOUSE = "rbp4_132_phpeb"
+RUN = "run8"
 
 
 BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN

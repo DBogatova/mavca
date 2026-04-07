@@ -33,9 +33,9 @@ mpl.rcParams['font.family'] = 'CMU Serif'
 mpl.rcParams['axes.unicode_minus'] = False
 
 # ===== CONFIG =====
-DATE = "2026-03-20"
-MOUSE = "rbp4cre_139_phpeb"
-RUN = "run1"
+DATE = "2026-03-31"
+MOUSE = "rbp4_132_phpeb"
+RUN = "run8"
 
 FRAME_RATE = 5  # Hz
 ARTIFACT_Z = -0.5  # replace ΔF/F < -0.5 with 0 (before smoothing)
@@ -47,7 +47,7 @@ CHUNK_T = 118  # time frames per chunk for memory efficiency
 PROJECT_ROOT = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025")
 BASE = PROJECT_ROOT / "scape-data" / DATE / MOUSE / RUN
 RAW_CLEAN_PATH = BASE / "preprocessed" / "raw_clean.tif"
-RAW_ORIG_PATH = BASE / "raw" / f"runA_run1_rbp4cre_139_phpeb-reslice-bin.tif"
+RAW_ORIG_PATH = BASE / "raw" / f"runA_run8_rbp4_132_phpeb-reslice-bin.tif"
 RAW_STACK_PATH = RAW_CLEAN_PATH if RAW_CLEAN_PATH.exists() else RAW_ORIG_PATH
 MASK_FOLDER = BASE / "labelmaps_curated_dynamic"
 TRACE_FOLDER = BASE / "traces"; TRACE_FOLDER.mkdir(exist_ok=True)
@@ -126,11 +126,13 @@ def load_masks_and_indices(mask_folder, Z, Y, X):
             print(f"[SKIP] {name}: empty mask after adjustment")
             continue
 
-        # Core & shell (3D)
-        core = binary_erosion(m, structure=ball(1))
-        if not core.any():
-            core = m.copy()
-        shell = binary_dilation(m, structure=ball(3)) & ~m
+        # Core = full mask (no erosion — keeps bright edge voxels)
+        core = m.copy()
+
+        # Shell = thin ring with 1-voxel gap to avoid self-contamination
+        inner_dilate = binary_dilation(m, structure=ball(2))  # 2-voxel gap
+        outer_dilate = binary_dilation(m, structure=ball(3))  # 1-voxel thick ring
+        shell = outer_dilate & ~inner_dilate
 
         core_idx = np.flatnonzero(core.ravel())
         shell_idx = np.flatnonzero(shell.ravel()) if shell.any() else np.array([], dtype=np.int64)
@@ -189,7 +191,7 @@ def main():
         if sum(c.shape[0] for c in f0_data) > 500:
             break
     f0_stack = np.concatenate(f0_data, axis=0)
-    f0_vol = np.percentile(f0_stack, 20, axis=0)  # (Z,Y,X)
+    f0_vol = np.percentile(f0_stack, 10, axis=0)  # (Z,Y,X) — 10th pct: true baseline
     del f0_data, f0_stack
     gc.collect()
     
@@ -231,15 +233,30 @@ def main():
     print(f"Extracted traces for {len(rois)} ROIs from raw stack")
 
     # ===== Artifact fix + smoothing + to % =====
-    print("Fixing artifacts and smoothing…")
+    print("Fixing motion artifacts (interpolation) and smoothing…")
     labels, traces_pct = [], []
     for roi in rois:
-        dff = roi["trace"]
-        artifact_mask = dff < ARTIFACT_Z
-        if artifact_mask.any():
-            print(f"  {roi['name']}: {artifact_mask.sum()} points < {ARTIFACT_Z}, setting to 0")
-            dff = dff.copy()
-            dff[artifact_mask] = 0.0
+        dff = roi["trace"].copy()
+
+        # Detect motion frames: sharp negative transients
+        # Use frame-to-frame derivative to find sudden drops
+        diff = np.diff(dff, prepend=dff[0])
+        # Mark frames with large negative jumps OR below artifact threshold
+        bad = (dff < ARTIFACT_Z) | (diff < -0.3)
+
+        # Dilate bad frames by 1 on each side (motion affects neighbors)
+        bad_dilated = bad.copy()
+        bad_dilated[1:] |= bad[:-1]
+        bad_dilated[:-1] |= bad[1:]
+
+        n_bad = bad_dilated.sum()
+        if n_bad > 0:
+            # Linear interpolation through bad frames
+            good_idx = np.where(~bad_dilated)[0]
+            bad_idx = np.where(bad_dilated)[0]
+            if len(good_idx) > 2:
+                dff[bad_idx] = np.interp(bad_idx, good_idx, dff[good_idx])
+            print(f"  {roi['name']}: interpolated {n_bad} motion frames")
 
         smoothed = gaussian_filter1d(dff, sigma=SMOOTH_SIGMA) * 100.0
         roi["trace_pct"] = smoothed

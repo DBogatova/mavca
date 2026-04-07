@@ -26,15 +26,15 @@ import gc
 mpl.rcParams['font.family'] = 'CMU Serif'
 
 # === CONFIGURATION ===
-DATE = "2026-03-20"
-MOUSE = "rbp4cre_139_phpeb"
-RUN = "run1"
+DATE = "2026-03-31"
+MOUSE = "rbp4_132_phpeb"
+RUN = "run8"
 
 # Acquisition
 FS_HZ = 5.0  # frames per second
 
 # Time trimming
-SKIP_FIRST_SECONDS = 0.0  # Set to 7.0 to remove first 7 seconds
+SKIP_FIRST_SECONDS = 7.0  # Set to 7.0 to remove first 7 seconds
 
 CROP_RADIUS = 5  # Number of frames to include before/after each event
 START_THRESHOLD = 0.5  # Z-score threshold for event start
@@ -42,7 +42,7 @@ END_THRESHOLD = -0.5   # Z-score threshold for event end (hysteresis)
 MAX_FRAME_GAP = 2     # Maximum gap between frames to group into same event
 Y_CROP = 3            # Number of pixels to crop from bottom of Y dimension
 BASELINE_PERCENTILE = 10  # Percentile for rolling baseline
-BASELINE_WINDOW = 600     # Window size for rolling baseline (frames) - 60s at 10Hz
+BASELINE_WINDOW = 300     # Window size for rolling baseline (frames) - 60s at 10Hz
 NOISE_WINDOW = 100        # Window size for MAD noise estimation (frames) - 10s at 10Hz
 MIN_EVENT_DURATION = 3    # Minimum event duration in frames
 MIN_PROMINENCE = 1.0      # Minimum prominence in MAD units

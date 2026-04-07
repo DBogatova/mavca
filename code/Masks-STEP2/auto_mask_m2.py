@@ -36,16 +36,16 @@ from skimage.filters import sato
 from tqdm import tqdm
 
 # ================== CONFIG ==================
-DATE = "2026-03-20"
-MOUSE = "rbp4cre_139_phpeb"
-RUN = "run1"
+DATE = "2026-03-31"
+MOUSE = "rbp4_132_phpeb"
+RUN = "run8"
 
 BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
 EVENT_FOLDER = BASE / "preprocessed" / "event_crops"
-OUT_LABELS   = BASE / "labelmaps_guided"
-OUT_PREV     = BASE / "labelmap_previews_guided"
-OUT_BGS      = BASE / "labelmap_backgrounds_guided"   # 2D backgrounds for viz
-MANIFEST     = BASE / "masks_manifest_guided.csv"
+OUT_LABELS   = BASE / "labelmaps"
+OUT_PREV     = BASE / "labelmap_previews"
+OUT_BGS      = BASE / "labelmap_backgrounds"   # 2D backgrounds for viz
+MANIFEST     = BASE / "masks_manifest.csv"
 for p in (OUT_LABELS, OUT_PREV, OUT_BGS):
     p.mkdir(parents=True, exist_ok=True)
 
@@ -54,7 +54,7 @@ VOXEL_SIZE = (3.9, 1.0, 1.2)       # (Z,Y,X) μm
 VOXEL_VOL  = float(np.prod(VOXEL_SIZE))
 
 # ---- Detection parameters ----
-INTENSITY_PERCENTILE = 99.8        # per-frame percentile on enhanced deep stack
+INTENSITY_PERCENTILE = 99.5        # per-frame percentile on enhanced deep stack
 Y_IGNORE_TOP_FRAC = 0.18           # ignore top 18% of Y when detecting (surface)
 
 # ---- Temporal aggregation ----
@@ -65,19 +65,19 @@ TEMPORAL_MIP_FRAMES = 10           # Frames around peak for temporal MIP
 TOPK_PEAKS = 4                     # Number of peak windows to detect in
 PEAK_MIN_SEP = 5                   # Minimum separation between peaks (frames)
 SEED_PCT = 99.7                    # High-confidence seed percentile on sum_pos
-CAND_PCT = 98.0                    # Lower candidate percentile on sum_pos (tune 97–98.5)
+CAND_PCT = 96.5                   # Lower candidate percentile on sum_pos (tune 97–98.5)
 
 # ---- Vesselness enhancement (helps capture full trunks) ----
 USE_VESSELNESS = True             # Set True to add Sato vesselness filter
-SATO_SIGMAS = (1, 2, 3, 4, 5)      # Scales for vesselness
+SATO_SIGMAS = (0.5, 1, 2, 3, 4, 5)      # Scales for vesselness
 VESSELNESS_PERCENTILE = 97.0       # Threshold for vesselness (used in per-frame mode)
-VESS_SEED_PCT = 99.0              # Vesselness seed percentile (multi-window mode)
-VESS_CAND_PCT = 97.0              # Vesselness candidate percentile (multi-window mode)
+VESS_SEED_PCT = 97.0              # Vesselness seed percentile (multi-window mode)
+VESS_CAND_PCT = 95.0              # Vesselness candidate percentile (multi-window mode)
 
 # ---- Intensity grow (fills trunk bodies) ----
 DO_INTENSITY_GROW = True          # Set True to grow masks using raw intensity
 GROW_PERCENTILE = 96.0             # Intensity threshold for growing
-GROW_DILATION_ITERS = 2            # Dilation iterations
+GROW_DILATION_ITERS = 3            # Dilation iterations
 
 # ---- Best-frames mode (M1.5 output) ----
 # "off"      = ignore M1.5, use event crops only (original auto_mask behavior)
@@ -92,7 +92,7 @@ MAX_FRAME_GAP = 1
 MIN_EVENT_LENGTH = 1               # allow even very brief events
 
 # ---- Volume gates (μm³) ----
-MIN_VOL = 8000.0                    # keep small dendrites
+MIN_VOL = 6000.0                    # keep small dendrites
 MAX_VOL = None                  # None → no upper cap
 
 # ---- Geometry filters (relaxed - to remove specks) ----
@@ -102,9 +102,9 @@ MIN_ASPECT_Y_OVER_X = 0.8          # Very relaxed
 MIN_ASPECT_Y_OVER_Z = 0.8          # Very relaxed
 
 # ---- 2D/3D clean-up ----
-SLICE_OPEN_K  = 3                  # per-slice open
-SLICE_CLOSE_K = 3                  # per-slice close
-SLICE_MIN_PIX = 10                 # min 2D pixels per slice before 3D CC
+SLICE_OPEN_K  = 1                  # per-slice open
+SLICE_CLOSE_K = 5                  # per-slice close
+SLICE_MIN_PIX = 7                 # min 2D pixels per slice before 3D CC
 
 # ---- Deduplication ----
 DUPLICATE_DICE = 0.60

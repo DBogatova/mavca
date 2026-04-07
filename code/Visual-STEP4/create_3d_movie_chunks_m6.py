@@ -5,12 +5,12 @@ from tqdm import tqdm
 import gc
 
 # === CONFIGURATION ===
-DATE = "2026-03-20"
-MOUSE = "rbp4cre_139_phpeb"
-RUN = "run1"
+DATE = "2026-03-31"
+MOUSE = "rbp4_132_phpeb"
+RUN = "run8"
 Y_CROP = 3
 FRAME_RATE = 5  # Hz
-CHUNK_DURATION = 115  # seconds per chunk
+CHUNK_DURATION = 120  # seconds per chunk
 
 # Cell selection options
 USE_ALL_CELLS = True  # Set to False to use only SELECTED_CELLS

@@ -42,16 +42,16 @@ from skimage.filters import sato
 from skimage.measure import regionprops
 
 # ================== CONFIG ==================
-DATE = "2026-03-20"
-MOUSE = "rbp4cre_139_phpeb"
-RUN = "run1"
+DATE = "2026-03-31"
+MOUSE = "rbp4_132_phpeb"
+RUN = "run8"
 
 BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
 
 # ---- Input (M2 output) ----
 IN_LABELS    = BASE / "labelmaps_guided"
 IN_BGS       = BASE / "labelmap_backgrounds_guided"
-IN_MANIFEST  = BASE / "masks_manifest.csv"
+IN_MANIFEST  = BASE / "masks_manifest_guided.csv"
 
 # ---- Output (split results) ----
 OUT_LABELS   = BASE / "labelmaps_split"
@@ -398,6 +398,9 @@ def napari_cut(dend_ids=None):
 
     if dend_ids is not None:
         m2_rows = [r for r in m2_rows if int(r["dend_id"]) in dend_ids]
+
+    # Filter out rows with missing mask files
+    m2_rows = [r for r in m2_rows if Path(r["labelmap_path"]).exists()]
 
     if not m2_rows:
         print("No masks to process.")

@@ -9,7 +9,7 @@ from qtpy.QtCore import QTimer
 
 # ---- Config ----
 BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/"
-            "apical-dendrites-2025/scape-data/2026-03-20/rbp4cre_139_phpeb/run3")
+            "apical-dendrites-2025/scape-data/2026-03-31/rbp4_132_phpeb/run8")
 STATIC_PATH = BASE / "overlays" / "static_masked_max_over_time.tif"
 VOXEL_ZYX = (3.9, 1.0, 1.2)
 import math
