@@ -28,13 +28,13 @@ mpl.rcParams['font.family'] = 'CMU Serif'
 # === CONFIGURATION ===
 DATE = "2026-03-31"
 MOUSE = "rbp4_132_phpeb"
-RUN = "run8"
+RUN = "run7"
 
 # Acquisition
 FS_HZ = 5.0  # frames per second
 
 # Time trimming
-SKIP_FIRST_SECONDS = 7.0  # Set to 7.0 to remove first 7 seconds
+SKIP_FIRST_SECONDS = 11.0  # Set to 7.0 to remove first 7 seconds
 
 CROP_RADIUS = 5  # Number of frames to include before/after each event
 START_THRESHOLD = 0.5  # Z-score threshold for event start

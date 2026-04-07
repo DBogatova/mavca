@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Combined behavior and calcium/ACh analysis plots
+Combined behavior and calcium/ACh analysis plots (single run)
 """
 
 import numpy as np
@@ -9,223 +9,167 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 from scipy.ndimage import gaussian_filter1d
 from scipy.io import loadmat
-# h5py will be imported when needed
 import tifffile
 
-# Configuration
-DATE = "2025-12-25"
-MOUSE = "rAi162_phpeb"
-RUN = "run1"
+# ===== CONFIG =====
+DATE = "2026-03-31"
+MOUSE = "rbp4_132_phpeb"
+RUN = "run7"
 
-# Manual frame shift (frames cropped from beginning)
-MANUAL_FRAME_SHIFT = 34  # frames cropped manually
 FRAME_RATE = 5  # Hz
+SKIP_FIRST_SECONDS = 11.0
+CROP_START_SECONDS = 11.0  # cut first N seconds from all signals
+HAS_ACH = False
 
-# Paths
-BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
-BEHAVIOR_MAT = BASE / "behavior" / f"{MOUSE}_25-12-26_Run001_behavior.mat"
-TRIGGER_MAT = BASE / "trigger" / "Run004_t1.mat"
-QUICKLOOK_CSV = BASE / "quicklook" / "dual_quicklook_traces.csv"
+# ===== PATHS =====
+BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/"
+            "apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
+BEHAVIOR_MAT = BASE / "behavior" / "rbp4_132_phpeb_26-03-31_Run007_behavior.mat"
 OUTPUT_PATH = BASE / "behavior_combined_plot.png"
 
+
 def load_calcium_ach_data():
-    """Load Ca and ACh traces from quicklook"""
-    if not QUICKLOOK_CSV.exists():
-        print(f"Quicklook CSV not found: {QUICKLOOK_CSV}")
+    """Compute global Ca ΔF/F from raw stack (mean of all non-dead voxels)."""
+    raw_clean = BASE / "preprocessed" / "raw_clean.tif"
+    raw_orig = BASE / "raw" / f"runA_{RUN}_{MOUSE}-reslice-bin.tif"
+    raw_path = raw_clean if raw_clean.exists() else raw_orig
+
+    if not raw_path.exists():
+        print(f"Raw stack not found: {raw_path}")
         return None, None, None
-    
-    df = pd.read_csv(QUICKLOOK_CSV)
-    # Apply manual frame shift
-    time_shift = MANUAL_FRAME_SHIFT / FRAME_RATE  # Convert frames to seconds
-    time = df.index.values / FRAME_RATE + time_shift
-    ach_dff = df['ACh_dFF'].values * 100  # Convert to %
-    ca_dff = df['Ca_dFF'].values * 100
-    
-    return time, ach_dff, ca_dff
+
+    print(f"Loading raw stack: {raw_path.name}")
+    store = tifffile.memmap(str(raw_path), mode='r')
+    T = store.shape[0]
+    skip = int(max(SKIP_FIRST_SECONDS, CROP_START_SECONDS) * FRAME_RATE)
+    print(f"  Shape: {store.shape}, skipping first {skip} frames for F0")
+
+    # Find dead voxels
+    print("  Finding live voxels...")
+    sample = np.asarray(store[:min(100, T)]).astype(np.float32)
+    tmean = sample.mean(axis=0)
+    live_idx = np.flatnonzero(tmean > np.percentile(tmean, 5))
+    print(f"  Live voxels: {live_idx.size:,} / {live_mask.size:,}" if False else
+          f"  Live voxels: {live_idx.size:,} / {tmean.size:,}")
+    del sample, tmean
+
+    # F0 baseline
+    print("  Computing F0 baseline...")
+    f0_frames = []
+    for t in range(skip, min(skip + 500, T)):
+        f0_frames.append(np.asarray(store[t]).astype(np.float32).ravel()[live_idx].mean())
+    f0 = np.percentile(f0_frames, 10)
+    print(f"  F0 = {f0:.1f}")
+    del f0_frames
+
+    # Global ΔF/F
+    print("  Computing global ΔF/F...")
+    ca_dff = np.empty(T, dtype=np.float32)
+    for t0 in range(0, T, 50):
+        t1 = min(t0 + 50, T)
+        frames = np.asarray(store[t0:t1]).astype(np.float32)
+        for i in range(frames.shape[0]):
+            ca_dff[t0 + i] = (frames[i].ravel()[live_idx].mean() - f0) / (f0 + 1e-6) * 100
+    del store
+
+    time = np.arange(T) / FRAME_RATE
+    # Crop
+    mask = time >= CROP_START_SECONDS
+    time, ca_dff = time[mask] - CROP_START_SECONDS, ca_dff[mask]
+    print(f"  Global Ca ΔF/F: min={ca_dff.min():.2f}%, max={ca_dff.max():.2f}%")
+    return time, None, ca_dff
+
 
 def load_behavior_data():
-    """Load pupil and whisker from behavior MAT file"""
+    """Load pupil and whisker from behavior MAT file."""
     if not BEHAVIOR_MAT.exists():
         print(f"Behavior MAT not found: {BEHAVIOR_MAT}")
         return None, None, None
-    
+
     mat_data = loadmat(BEHAVIOR_MAT)
-    
-    # Extract pupil data
-    pupil_smooth = mat_data['pupil']['pupil_smooth'][0][0].flatten()
-    
-    # Extract whisker data (choose one type)
-    whisker_smooth = mat_data['whisker']['whisker_smooth_long'][0][0].flatten()
-    
-    # Create time axis (assuming 10Hz for behavior)
-    time_behavior = np.arange(len(pupil_smooth)) / 10.0
-    
-    return time_behavior, pupil_smooth, whisker_smooth
+    pupil = mat_data['pupil']['pupil_raw'][0][0].flatten()
+    # Light smooth on raw pupil
+    pupil = gaussian_filter1d(pupil, sigma=2)  # ~0.2s at 10 Hz
+    whisker = mat_data['whisker']['whisker_smooth_long'][0][0].flatten()
+
+    n = len(pupil)
+    print(f"  Behavior: {n} samples at 10 Hz = {n/10:.1f}s")
+
+    time = np.arange(n) / 10.0
+    mask = time >= CROP_START_SECONDS
+    whisker_sm = gaussian_filter1d(whisker, sigma=3)
+    return time[mask] - CROP_START_SECONDS, pupil[mask], whisker_sm[mask]
+
 
 def load_accelerometer_data():
-    """Load accelerometer from CSV files"""
-    accel_csv = BASE / "trigger" / "Run001_t1_accel.csv"
-    trigger_csv = BASE / "trigger" / "Run001_t1_trigger.csv"
-    
-    if not accel_csv.exists() or not trigger_csv.exists():
-        print(f"CSV files not found: {accel_csv}, {trigger_csv}")
+    """Load accelerometer from CSV, time relative to trigger onset."""
+    run_num = RUN.replace("run", "").zfill(3)
+    accel_csv = BASE / "trigger" / f"Run{run_num}_t1_accel.csv"
+
+    if not accel_csv.exists():
+        print(f"Accel CSV not found: {accel_csv}")
         return None, None, 0
-    
-    # Load accelerometer data
-    accel_df = pd.read_csv(accel_csv)
-    print(f"Accel CSV columns: {list(accel_df.columns)}")
-    accel_data = accel_df.iloc[:, 1].values  # Assuming second column is data
-    
-    # Load trigger data
-    trigger_df = pd.read_csv(trigger_csv)
-    print(f"Trigger CSV columns: {list(trigger_df.columns)}")
-    
-    # Find the trigger column (might have different name)
-    trigger_col = None
-    for col in trigger_df.columns:
-        if 'trigger' in col.lower() or 'andor' in col.lower():
-            trigger_col = col
-            break
-    
-    if trigger_col is None:
-        trigger_col = trigger_df.columns[-1]  # Use last column as fallback
-    
-    trigger_data = trigger_df[trigger_col].values
-    print(f"Using trigger column: {trigger_col}")
-    
-    # Find trigger offset (first time AndorXylaTrigger = 1)
-    trigger_onset = np.where(trigger_data == 1)[0]
-    offset_samples = trigger_onset[0] if len(trigger_onset) > 0 else 0
-    
-    print(f"Trigger onset at sample {offset_samples} ({offset_samples/1000.0:.3f}s)")
-    
-    # Create time axis (assuming 1kHz)
-    time_accel = np.arange(len(accel_data)) / 1000.0
-    
-    return time_accel, accel_data, offset_samples
+
+    df = pd.read_csv(accel_csv)
+    print(f"Accel columns: {list(df.columns)}")
+
+    accel = df['accel_mag'].values if 'accel_mag' in df.columns else df.iloc[:, 1].values
+    time = df['aligned_time_s'].values if 'aligned_time_s' in df.columns else df['sample'].values / 1000.0
+
+    # Crop and clean
+    mask = time >= CROP_START_SECONDS
+    accel_clean = np.abs(accel[mask])
+    accel_clean = gaussian_filter1d(accel_clean, sigma=10)
+    return time[mask] - CROP_START_SECONDS, accel_clean, 0
+
 
 def plot_combined_signals():
-    """Create combined plot of all signals"""
-    # Load data
+    """Create combined plot of all signals."""
     time_ca, ach_dff, ca_dff = load_calcium_ach_data()
     time_behavior, pupil, whisker = load_behavior_data()
-    time_accel, accel, offset = load_accelerometer_data()
-    
-    # Create figure with 5 subplots
-    fig, axes = plt.subplots(5, 1, figsize=(14, 12), sharex=True)
-    
-    # Plot 1: ACh
+    time_accel, accel, _ = load_accelerometer_data()
+
+    panels = []
+    if time_ca is not None and HAS_ACH and ach_dff is not None:
+        panels.append(("ACh ΔF/F (%)", time_ca, ach_dff, 'red'))
     if time_ca is not None:
-        # Start Ca/ACh time axis from 0
-        time_ca_corrected = time_ca - time_ca[0]
-        axes[0].plot(time_ca_corrected, ach_dff, color='red', linewidth=1.5)
-        axes[0].set_ylabel('ACh ΔF/F (%)')
-        axes[0].set_title('ACh Signal')
-        axes[0].grid(alpha=0.3)
-    
-    # Plot 2: Ca
-    if time_ca is not None:
-        axes[1].plot(time_ca_corrected, ca_dff, color='green', linewidth=1.5)
-        axes[1].set_ylabel('Ca ΔF/F (%)')
-        axes[1].set_title('Ca Signal')
-        axes[1].grid(alpha=0.3)
-    
-    # Crop behavior signals by 6.8 seconds (34 frames worth) to match Ca/ACh
-    crop_time = MANUAL_FRAME_SHIFT / FRAME_RATE  # 6.8 seconds
-    behavior_crop_samples = int(crop_time * 10)  # 68 samples at 10Hz
-    accel_crop_samples = int(crop_time * 1000)   # 6800 samples at 1kHz
-    
-    # Use trigger onset + 2s for original offset
-    scape_start_sec = (offset / 1000.0) + 2.0 if offset > 0 else 2.0
-    scape_start_behavior_samples = int(scape_start_sec * 10)
-    scape_start_accel_samples = int(scape_start_sec * 1000)
-    
-    # Plot 3: Pupil (crop 6.8s and match Ca/ACh duration)
+        panels.append(("Ca ΔF/F (%)", time_ca, ca_dff, 'green'))
     if time_behavior is not None and pupil is not None:
-        try:
-            mat_data = loadmat(BEHAVIOR_MAT)
-            pupil_data = mat_data['pupil']['pupil_raw'][0][0].flatten()
-        except:
-            pupil_data = pupil
-        
-        # Crop from trigger start + additional 6.8s crop
-        start_idx = scape_start_behavior_samples + behavior_crop_samples
-        if start_idx < len(pupil_data):
-            pupil_cropped = pupil_data[start_idx:]
-        else:
-            pupil_cropped = pupil_data
-        
-        # Match Ca/ACh duration and start from time 0
-        if time_ca is not None:
-            ca_duration = time_ca[-1] - time_ca[0]
-            max_samples = int(ca_duration * 10)
-            if len(pupil_cropped) > max_samples:
-                pupil_cropped = pupil_cropped[:max_samples]
-        
-        time_cropped = np.arange(len(pupil_cropped)) / 10.0
-        axes[2].plot(time_cropped, pupil_cropped, color='blue', linewidth=1.0)
-        axes[2].set_ylabel('Pupil Dilation')
-        axes[2].set_title('Pupil Signal')
-        axes[2].grid(alpha=0.3)
-    
-    # Plot 4: Whisker (crop 6.8s and match Ca/ACh duration)
+        panels.append(("Pupil Dilation", time_behavior, pupil, 'blue'))
     if time_behavior is not None and whisker is not None:
-        try:
-            mat_data = loadmat(BEHAVIOR_MAT)
-            whisker_data = mat_data['whisker']['whisker_raw_pad'][0][0].flatten()
-        except:
-            whisker_data = whisker
-        
-        # Crop from trigger start + additional 6.8s crop
-        start_idx = scape_start_behavior_samples + behavior_crop_samples
-        if start_idx < len(whisker_data):
-            whisker_cropped = whisker_data[start_idx:]
-        else:
-            whisker_cropped = whisker_data
-        
-        # Match Ca/ACh duration and start from time 0
-        if time_ca is not None:
-            ca_duration = time_ca[-1] - time_ca[0]
-            max_samples = int(ca_duration * 10)
-            if len(whisker_cropped) > max_samples:
-                whisker_cropped = whisker_cropped[:max_samples]
-        
-        time_cropped = np.arange(len(whisker_cropped)) / 10.0
-        whisker_smooth = gaussian_filter1d(whisker_cropped, sigma=1.0)
-        axes[3].plot(time_cropped, whisker_smooth, color='orange', linewidth=1.0)
-        axes[3].set_ylabel('Whisker Motion')
-        axes[3].set_title('Whisker Signal')
-        axes[3].grid(alpha=0.3)
-    
-    # Plot 5: Accelerometer (crop 6.8s and match Ca/ACh duration)
+        panels.append(("Whisker Motion", time_behavior, whisker, 'orange'))
     if time_accel is not None and accel is not None:
-        # Crop from trigger start + additional 6.8s crop
-        start_idx = scape_start_accel_samples + accel_crop_samples
-        if start_idx < len(accel):
-            accel_cropped = accel[start_idx:]
-        else:
-            accel_cropped = accel
-        
-        # Match Ca/ACh duration and start from time 0
-        if time_ca is not None:
-            ca_duration = time_ca[-1] - time_ca[0]
-            max_samples = int(ca_duration * 1000)
-            if len(accel_cropped) > max_samples:
-                accel_cropped = accel_cropped[:max_samples]
-        
-        time_accel_cropped = np.arange(len(accel_cropped)) / 1000.0
-        axes[4].plot(time_accel_cropped, accel_cropped, color='purple', linewidth=1.0)
-        axes[4].set_ylabel('Acceleration')
-        axes[4].set_title('Accelerometer')
-        axes[4].set_xlabel('Time (s)')
-        axes[4].grid(alpha=0.3)
-    
-    plt.suptitle(f'{MOUSE} - {DATE} - {RUN}', fontsize=14, fontweight='bold')
+        panels.append(("Accelerometer", time_accel, accel, 'purple'))
+
+    # Crop all to Ca duration
+    if time_ca is not None:
+        t_end = time_ca[-1]
+        cropped = []
+        for ylabel, t, data, color in panels:
+            m = (t >= 0) & (t <= t_end)
+            cropped.append((ylabel, t[m], data[m], color))
+        panels = cropped
+
+    if not panels:
+        print("No data to plot.")
+        return
+
+    fig, axes = plt.subplots(len(panels), 1, figsize=(14, 3 * len(panels)), sharex=True)
+    if len(panels) == 1:
+        axes = [axes]
+
+    for ax, (ylabel, t, data, color) in zip(axes, panels):
+        ax.plot(t, data, color=color, linewidth=1.0)
+        ax.set_ylabel(ylabel)
+        ax.grid(alpha=0.3)
+
+    axes[-1].set_xlabel('Time (s)')
+    plt.suptitle(f'{MOUSE} — {DATE} — {RUN}', fontsize=14, fontweight='bold')
     plt.tight_layout()
     plt.savefig(OUTPUT_PATH, dpi=200, bbox_inches='tight')
     plt.show()
-    
-    print(f"Saved combined plot: {OUTPUT_PATH}")
+    print(f"Saved: {OUTPUT_PATH}")
+
 
 def main():
     print(f"Creating combined behavior plot for {MOUSE}-{DATE}-{RUN}")
