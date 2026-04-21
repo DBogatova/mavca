@@ -43,27 +43,26 @@ except ImportError:
 # =================
 # ===== CONFIG =====
 # =================
-DATE = "2025-12-02"
-MOUSE = "rbp4cre_136_phpeb"
-RUN = "run4"
+DATE = "2026-03-31"
+MOUSE = "rbp4_132_phpeb"
+RUN = "run8"
 
 FRAME_RATE = 5.0
 CHUNK_T = 118
 Y_CROP = 3  # crop bottom Y pixels to match masks
 
 # ===== Voxel sizes (MICRONS) =====
-# !!! Set these to your dataset values !!!
-# If unsure: XY is often ~0.5–0.8 µm; Z is your effective step in µm after reslice/deskew.
 VOXEL_Z_UM = 3.9
-VOXEL_Y_UM = 0.5
-VOXEL_X_UM = 0.5
+VOXEL_Y_UM = 1.0
+VOXEL_X_UM = 1.2
 
 # Optional: exclude top fraction ONLY for trace computation (not masks)
 EXCLUDE_TOP_ONLY_FOR_TRACES = True
 EXCLUDE_TOP_FRACTION = 0.01  # e.g., 0.30 = exclude top 30% of Y
 
 # Baseline
-F0_NFRAMES = 30
+SKIP_FIRST_SECONDS = 11.0  # skip initial transient
+F0_NFRAMES = 500  # frames after skip to compute F0 from
 EPS = 1e-8
 
 # ΔF/F safety (prevents huge ΔF/F in dim voxels)
@@ -73,14 +72,17 @@ DENOM_FLOOR_PCT = 5.0
 DENOM_FLOOR_ABS = 20.0
 
 # Also compute absolute ΔF in parallel?
-COMPUTE_DELTAF = True
+COMPUTE_DELTAF = False
+
+# Crop start seconds from all traces
+CROP_START_SECONDS = 11.0
 
 # Artifact clamp / smoothing
 ARTIFACT_Z = -0.5
 SMOOTH_SIGMA = 0.5
 
-# Tissue mask (answers "coverage in functional volume")
-USE_TISSUE_MASK = True
+# Tissue mask — disabled (redundant with main plot)
+USE_TISSUE_MASK = False
 TISSUE_MODE = "percentile"     # "percentile" or "mean_plus_kstd"
 TISSUE_F0_PCT = 10.0           # keep voxels with F0 >= this percentile (within allowed region)
 TISSUE_KSTD = 1.0
@@ -90,8 +92,7 @@ DO_UM_RINGS = True
 RING_UM_EDGES = (5.0, 10.0, 15.0, 20.0, 25.0, 30.0)  # rings: 0–5, 5–10, 10–15, far >30
 
 # ===== FUNCTIONAL VOXEL DETECTION =====
-# Detect voxels with significant activity (not just bright F0)
-USE_ACTIVITY_MASK = True
+USE_ACTIVITY_MASK = False  # expensive, loads full stack into memory
 ACTIVITY_THRESHOLD_MODE = "mad"  # "mad", "percentile", or "zscore"
 ACTIVITY_MAD_FACTOR = 3.0        # voxels with temporal MAD > 3x median MAD
 ACTIVITY_PERCENTILE = 90.0       # or top 10% most variable voxels
@@ -101,7 +102,7 @@ ACTIVITY_ZSCORE = 2.0            # or voxels with peak z-score > 2
 CONTAMINATION_RINGS = (2.0, 5.0, 10.0)  # analyze contamination vs distance
 
 # ===== VOLUME-WEIGHTED COMPARISONS =====
-BOOTSTRAP_COMPARISONS = True     # bootstrap to get confidence intervals
+BOOTSTRAP_COMPARISONS = False  # expensive, not needed for basic analysis
 N_BOOTSTRAP = 1000
 
 # Plot / output
@@ -117,7 +118,7 @@ PROJECT_ROOT = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-den
 BASE = PROJECT_ROOT / "scape-data" / DATE / MOUSE / RUN
 
 RAW_CLEAN_PATH = BASE / "preprocessed" / "raw_clean.tif"
-RAW_ORIG_PATH = BASE / "raw" / f"runA_{RUN}_{MOUSE}_binimagej_reslice_green.tif"
+RAW_ORIG_PATH = BASE / "raw" / f"runA_{RUN}_{MOUSE}-reslice-bin.tif"
 RAW_STACK_PATH = RAW_CLEAN_PATH if RAW_CLEAN_PATH.exists() else RAW_ORIG_PATH
 
 MASK_FOLDER = BASE / "labelmaps_curated_dynamic"
@@ -221,11 +222,14 @@ def build_union_mask(mask_files: list[Path], target_zyx: tuple[int, int, int]) -
 # ==========================================
 # ===== Core computation helpers ============
 # ==========================================
-def compute_f0_from_last_frames(stack_tzyx: np.ndarray, nframes: int) -> np.ndarray:
+def compute_f0_from_early_frames(stack_tzyx: np.ndarray, skip_sec: float, fps: float, nframes: int) -> np.ndarray:
+    """F0 = 10th percentile of early frames (after skipping initial transient)."""
+    skip = int(skip_sec * fps)
     T = stack_tzyx.shape[0]
-    n = int(min(max(1, nframes), T))
-    last = np.asarray(stack_tzyx[T - n:T], dtype=np.float32)
-    return np.nanmean(last, axis=0).astype(np.float32)
+    t0 = min(skip, T - 1)
+    t1 = min(t0 + nframes, T)
+    chunk = np.asarray(stack_tzyx[t0:t1], dtype=np.float32)
+    return np.percentile(chunk, 10, axis=0).astype(np.float32)
 
 
 def make_allowed_region_mask(Z: int, Y: int, X: int) -> np.ndarray:
@@ -417,21 +421,38 @@ def build_um_rings(union_zyx: np.ndarray, allowed_zyx: np.ndarray, edges_um: tup
 # ===== Plotting =======
 # ======================
 def plot_overlay(time_s: np.ndarray, a: np.ndarray, b: np.ndarray, c: np.ndarray,
-                 title: str, labels: tuple[str, str, str], out_png: Path | None, ylab: str):
+                 title: str, labels: tuple[str, str, str], out_png: Path | None, ylab: str,
+                 diff_trace: np.ndarray | None = None, diff_label: str = "Inside − Outside"):
     finite = np.isfinite(a) & np.isfinite(b) & np.isfinite(c)
     # Require minimum sample size for reliable correlation
     min_samples = max(30, len(a) // 10)  # At least 30 points or 10% of data
     corr_ab = np.corrcoef(a[finite], b[finite])[0, 1] if finite.sum() > min_samples else np.nan
     corr_ac = np.corrcoef(a[finite], c[finite])[0, 1] if finite.sum() > min_samples else np.nan
 
-    plt.figure(figsize=(11, 4.2))
-    plt.plot(time_s, a, lw=2, label=labels[0])
-    plt.plot(time_s, b, lw=2, alpha=0.85, label=labels[1])
-    plt.plot(time_s, c, lw=2, alpha=0.85, label=labels[2])
-    plt.xlabel("Time (s)")
-    plt.ylabel(ylab)
-    plt.title(f"{title} (corr {labels[1]}={corr_ab:.2f}, corr {labels[2]}={corr_ac:.2f})")
-    plt.legend()
+    fig, axes = plt.subplots(2 if diff_trace is not None else 1, 1,
+                              figsize=(11, 7 if diff_trace is not None else 4.2),
+                              sharex=True, gridspec_kw={"height_ratios": [2, 1]} if diff_trace is not None else {})
+    if diff_trace is None:
+        axes = [axes]
+
+    axes[0].plot(time_s, a, lw=2, label=labels[0])
+    axes[0].plot(time_s, b, lw=2, alpha=0.85, label=labels[1])
+    axes[0].plot(time_s, c, lw=2, alpha=0.85, label=labels[2])
+    axes[0].set_ylabel(ylab)
+    axes[0].set_title(f"{title} (corr {labels[1]}={corr_ab:.2f}, corr {labels[2]}={corr_ac:.2f})")
+    axes[0].legend()
+    axes[0].grid(alpha=0.3)
+
+    if diff_trace is not None:
+        axes[1].plot(time_s, diff_trace, lw=1.5, color='magenta', label=diff_label)
+        axes[1].axhline(0, color='gray', ls='--', lw=0.8, alpha=0.5)
+        axes[1].set_ylabel(ylab)
+        axes[1].set_xlabel("Time (s)")
+        axes[1].legend()
+        axes[1].grid(alpha=0.3)
+    else:
+        axes[0].set_xlabel("Time (s)")
+
     plt.tight_layout()
 
     if out_png is not None:
@@ -490,8 +511,8 @@ def main():
     cov_total = float(union.mean() * 100.0)
     print(f"Union mask coverage (total voxels): {cov_total:.2f}%")
 
-    print("\n=== Computing F0 (last frames) ===")
-    f0 = compute_f0_from_last_frames(stack, nframes=F0_NFRAMES)
+    print("\n=== Computing F0 (early frames, 10th percentile) ===")
+    f0 = compute_f0_from_early_frames(stack, SKIP_FIRST_SECONDS, FRAME_RATE, F0_NFRAMES)
     print(f"F0 shape: {f0.shape}")
 
     tissue = None
@@ -524,26 +545,70 @@ def main():
         all_t = inside_t = outside_t = None
 
     time_s = np.arange(T, dtype=np.float32) / float(FRAME_RATE)
+    T_orig = T  # save for per-mask computation
+
+    # Crop first seconds from all traces
+    crop_frames = int(CROP_START_SECONDS * FRAME_RATE)
+    crop_slice = slice(crop_frames, None)
+    time_s = time_s[crop_slice] - time_s[crop_frames]
 
     print("\n=== Computing main traces (ΔF/F) ===")
     all_dff, all_dF = compute_mean_trace_chunked(stack, f0, all_mask.reshape(-1), alpha)
     out_dff, out_dF = compute_mean_trace_chunked(stack, f0, outside.reshape(-1), alpha)
     in_dff, in_dF = compute_mean_trace_chunked(stack, f0, inside.reshape(-1), alpha)
 
-    all_dff_s = smooth(all_dff)
-    out_dff_s = smooth(out_dff)
-    in_dff_s = smooth(in_dff)
+    all_dff_s = smooth(all_dff[crop_slice])
+    out_dff_s = smooth(out_dff[crop_slice])
+    in_dff_s = smooth(in_dff[crop_slice])
+    diff_dff_s = in_dff_s - out_dff_s
 
-    plot_overlay(
-        time_s,
-        all_dff_s, out_dff_s, in_dff_s,
-        title=f"{DATE} | {MOUSE} | {RUN}  (allowed region)",
-        labels=("All (allowed)", "Outside (allowed)", "Inside (allowed)"),
-        out_png=OUT_PNG_MAIN if SAVE_FIG else None,
-        ylab="ΔF/F"
-    )
+    # Skip the basic overlay plot — comparison plot below is more informative
     
-    # Additional plot: inside_masks, outside_masks_15microns, global average
+    # === Per-mask core−shell average (same method as M4) ===
+    print("\n=== Computing per-mask core−shell ΔF/F (M4 method) ===")
+    from scipy.ndimage import binary_erosion, binary_dilation
+    from skimage.morphology import ball
+    
+    per_mask_traces = []
+    for mf in mask_files:
+        m = load_mask(mf)
+        mz, my, mx = m.shape
+        if my > Y: m = m[:, :Y, :X]
+        elif my < Y: m = np.pad(m, ((0,0),(0,Y-my),(0,0)), mode='constant')
+        if not m.any():
+            continue
+        core = binary_erosion(m, structure=ball(1))
+        if not core.any():
+            core = m.copy()
+        inner_dilate = binary_dilation(m, structure=ball(2))
+        outer_dilate = binary_dilation(m, structure=ball(3))
+        shell = outer_dilate & ~inner_dilate
+        
+        core_flat = np.flatnonzero(core.ravel())
+        shell_flat = np.flatnonzero(shell.ravel()) if shell.any() else np.array([], dtype=np.int64)
+        
+        # Extract trace chunk-wise
+        trace = np.empty(T_orig, dtype=np.float32)
+        for t0 in range(0, T_orig, CHUNK_T):
+            t1 = min(T_orig, t0 + CHUNK_T)
+            chunk = np.asarray(stack[t0:t1], dtype=np.float32)
+            for ti in range(chunk.shape[0]):
+                vol = (chunk[ti] - f0) / (f0 + EPS + alpha)
+                vol_flat = vol.ravel()
+                core_val = vol_flat[core_flat].mean()
+                shell_val = vol_flat[shell_flat].mean() if shell_flat.size > 0 else 0.0
+                trace[t0 + ti] = core_val - shell_val
+        per_mask_traces.append(trace)
+        del core, shell, m
+    
+    if per_mask_traces:
+        avg_m4 = np.mean(per_mask_traces, axis=0)
+        avg_m4_s = smooth(avg_m4[crop_slice]) * 100.0  # to percent
+        print(f"  Averaged {len(per_mask_traces)} masks, range: {avg_m4_s.min():.2f}% to {avg_m4_s.max():.2f}%")
+    else:
+        avg_m4_s = None
+
+    # Comparison plot: inside_masks vs far >15µm vs global
     if DO_UM_RINGS:
         print("\n=== Computing 15µm outside ring for comparison plot ===")
         # Create far >15µm ring mask
@@ -553,15 +618,17 @@ def main():
         
         if far_gt15um.sum() > 200:
             far_dff, _ = compute_mean_trace_chunked(stack, f0, far_gt15um.reshape(-1), alpha)
-            far_dff_s = smooth(far_dff)
+            far_dff_s = smooth(far_dff[crop_slice])
             
             plot_overlay(
                 time_s,
-                in_dff_s, far_dff_s, all_dff_s,
+                in_dff_s * 100, far_dff_s * 100, all_dff_s * 100,
                 title=f"{DATE} | {MOUSE} | {RUN}  (inside vs far >15µm vs global)",
                 labels=("Inside masks", "Outside masks >15µm", "Global average"),
                 out_png=TRACE_FOLDER / "globalCa_comparison.png" if SAVE_FIG else None,
-                ylab="ΔF/F"
+                ylab="ΔF/F (%)",
+                diff_trace=avg_m4_s if avg_m4_s is not None else diff_dff_s * 100,
+                diff_label="Avg core−shell per mask (M4 method)",
             )
 
     # Tissue plot
@@ -582,7 +649,8 @@ def main():
             title=f"{DATE} | {MOUSE} | {RUN}  (tissue-only)",
             labels=("All (tissue)", "Outside (tissue)", "Inside (tissue)"),
             out_png=OUT_PNG_TISSUE if SAVE_FIG else None,
-            ylab="ΔF/F"
+            ylab="ΔF/F",
+            diff_trace=inT_dff_s - outT_dff_s,
         )
 
     # Micron rings
@@ -598,7 +666,7 @@ def main():
                 print(f"  skipping {name} (too few voxels)")
                 continue
             tr, _ = compute_mean_trace_chunked(stack, f0, m.reshape(-1), alpha)
-            ring_traces[name] = smooth(tr)
+            ring_traces[name] = smooth(tr[crop_slice]) * 100.0
 
         if ring_traces:
             plot_many(
@@ -606,7 +674,7 @@ def main():
                 ring_traces,
                 out_png=OUT_PNG_RINGS if SAVE_FIG else None,
                 title=f"{DATE} | {MOUSE} | {RUN}  outside rings vs distance-to-dendrite (µm)",
-                ylab="ΔF/F"
+                ylab="ΔF/F (%)"
             )
 
     # Optional ΔF plot
@@ -622,7 +690,9 @@ def main():
             title=f"{DATE} | {MOUSE} | {RUN}  absolute ΔF (allowed region)",
             labels=("ΔF all", "ΔF outside", "ΔF inside"),
             out_png=OUT_PNG_DELTAF if SAVE_FIG else None,
-            ylab="ΔF (a.u.)"
+            ylab="ΔF (a.u.)",
+            diff_trace=in_dF_s - out_dF_s,
+            diff_label="ΔF Inside − Outside",
         )
 
     # Save bundle

@@ -44,14 +44,14 @@ from skimage.measure import regionprops
 # ================== CONFIG ==================
 DATE = "2026-03-31"
 MOUSE = "rbp4_132_phpeb"
-RUN = "run8"
+RUN = "run7"
 
 BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
 
 # ---- Input (M2 output) ----
-IN_LABELS    = BASE / "labelmaps_guided"
-IN_BGS       = BASE / "labelmap_backgrounds_guided"
-IN_MANIFEST  = BASE / "masks_manifest_guided.csv"
+IN_LABELS    = BASE / "labelmaps"
+IN_BGS       = BASE / "labelmap_backgrounds"
+IN_MANIFEST  = BASE / "masks_manifest.csv"
 
 # ---- Output (split results) ----
 OUT_LABELS   = BASE / "labelmaps_split"

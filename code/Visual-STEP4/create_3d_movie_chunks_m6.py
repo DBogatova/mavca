@@ -7,9 +7,10 @@ import gc
 # === CONFIGURATION ===
 DATE = "2026-03-31"
 MOUSE = "rbp4_132_phpeb"
-RUN = "run8"
+RUN = "run7"
 Y_CROP = 3
 FRAME_RATE = 5  # Hz
+SKIP_FIRST_SECONDS = 11.0  # drop first N seconds (laser warmup)
 CHUNK_DURATION = 120  # seconds per chunk
 
 # Cell selection options
@@ -33,6 +34,13 @@ def main():
     raw_stack = tifffile.imread(RAW_STACK_PATH).astype(np.float32)
     if Y_CROP > 0:
         raw_stack = raw_stack[:, :, :-Y_CROP, :]
+    
+    # Skip first seconds
+    skip_frames = int(SKIP_FIRST_SECONDS * FRAME_RATE)
+    if skip_frames > 0:
+        raw_stack = raw_stack[skip_frames:]
+        print(f"Skipped first {SKIP_FIRST_SECONDS}s ({skip_frames} frames)")
+    
     T, Z, Y, X = raw_stack.shape
     print(f"Stack shape: {raw_stack.shape}, Memory: {raw_stack.nbytes / 1e9:.1f} GB")
 

@@ -14,17 +14,17 @@ import tifffile
 # ===== CONFIG =====
 DATE = "2026-03-31"
 MOUSE = "rbp4_132_phpeb"
-RUN = "run7"
+RUN = "run8"
 
 FRAME_RATE = 5  # Hz
-SKIP_FIRST_SECONDS = 11.0
-CROP_START_SECONDS = 11.0  # cut first N seconds from all signals
+SKIP_FIRST_SECONDS = 12.0
+CROP_START_SECONDS = 12.0  # cut first N seconds from all signals
 HAS_ACH = False
 
 # ===== PATHS =====
 BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/"
             "apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
-BEHAVIOR_MAT = BASE / "behavior" / "rbp4_132_phpeb_26-03-31_Run007_behavior.mat"
+BEHAVIOR_MAT = BASE / "behavior" / "rbp4_132_phpeb_26-03-31_Run008_behavior.mat"
 OUTPUT_PATH = BASE / "behavior_combined_plot.png"
 
 

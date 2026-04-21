@@ -24,8 +24,8 @@ RUNS = ["run8", "run9", "run10"]
 RUN_NUMS = ["008", "009", "010"]  # for filenames
 
 FRAME_RATE = 5  # Hz (imaging)
-SKIP_FIRST_SECONDS = 12.0
-CROP_START_SECONDS = 12.0  # cut this many seconds from the start of each run
+SKIP_FIRST_SECONDS = 13.0
+CROP_START_SECONDS = 13.0  # cut this many seconds from the start of each run
 HAS_ACH = False
 
 BASE_ROOT = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/"
@@ -167,7 +167,11 @@ def main():
             mask = t_beh <= ca_dur
             offset = run_boundaries_beh[-1]
             all_pupil_t.append(t_beh[mask] + offset)
-            all_pupil.append(pupil[mask])
+            # Subtract per-run median to align baselines
+            p_seg = pupil[mask]
+            if len(RUNS) > 1:
+                p_seg = p_seg - np.median(p_seg)
+            all_pupil.append(p_seg)
             all_whisker_t.append(t_beh[mask] + offset)
             all_whisker.append(whisker[mask])
             run_boundaries_beh.append(offset + t_beh[mask][-1])
@@ -189,8 +193,9 @@ def main():
         panels.append(("Ca ΔF/F (%)", np.concatenate(all_ca_t),
                         np.concatenate(all_ca), 'green', run_boundaries_ca))
     if all_pupil:
-        panels.append(("Pupil Dilation", np.concatenate(all_pupil_t),
-                        np.concatenate(all_pupil), 'blue', run_boundaries_beh))
+        _dp = np.concatenate(all_pupil); _tp = np.concatenate(all_pupil_t)
+        print(f"DEBUG pupil: len={len(_dp)}, min={_dp.min():.4f}, max={_dp.max():.4f}, t_max={_tp[-1]:.1f}s")
+        panels.append(("Pupil Dilation", _tp, _dp, 'blue', run_boundaries_beh))
     if all_whisker:
         panels.append(("Whisker Motion", np.concatenate(all_whisker_t),
                         np.concatenate(all_whisker), 'orange', run_boundaries_beh))

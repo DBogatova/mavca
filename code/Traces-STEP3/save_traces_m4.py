@@ -35,21 +35,28 @@ mpl.rcParams['axes.unicode_minus'] = False
 # ===== CONFIG =====
 DATE = "2026-03-31"
 MOUSE = "rbp4_132_phpeb"
-RUN = "run8"
+RUN = "run7"
 
 FRAME_RATE = 5  # Hz
 ARTIFACT_Z = -0.5  # replace ΔF/F < -0.5 with 0 (before smoothing)
 SMOOTH_SIGMA = 0.5  # for gaussian_filter1d
-SKIP_FIRST_SECONDS = 10.0  # skip initial transient for F0 baseline
-CHUNK_T = 118  # time frames per chunk for memory efficiency
+SKIP_FIRST_SECONDS = 11.0  # skip initial transient for F0 baseline
+CHUNK_T = 120  # time frames per chunk for memory efficiency
 
 # ===== PATHS =====
 PROJECT_ROOT = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025")
 BASE = PROJECT_ROOT / "scape-data" / DATE / MOUSE / RUN
 RAW_CLEAN_PATH = BASE / "preprocessed" / "raw_clean.tif"
-RAW_ORIG_PATH = BASE / "raw" / f"runA_run8_rbp4_132_phpeb-reslice-bin.tif"
+RAW_ORIG_PATH = BASE / "raw" / f"runA_run7_rbp4_132_phpeb-reslice-bin.tif"
 RAW_STACK_PATH = RAW_CLEAN_PATH if RAW_CLEAN_PATH.exists() else RAW_ORIG_PATH
-MASK_FOLDER = BASE / "labelmaps_curated_dynamic"
+
+# Masks: set MASK_SOURCE_RUN to use masks from a different run (e.g. "run8")
+# Leave None to use masks from the current RUN
+MASK_SOURCE_RUN = None  # e.g. "run8"
+if MASK_SOURCE_RUN:
+    MASK_FOLDER = PROJECT_ROOT / "scape-data" / DATE / MOUSE / MASK_SOURCE_RUN / "labelmaps_curated_dynamic"
+else:
+    MASK_FOLDER = BASE / "labelmaps_curated_dynamic"
 TRACE_FOLDER = BASE / "traces"; TRACE_FOLDER.mkdir(exist_ok=True)
 TRACE_PKL = TRACE_FOLDER / "dff_traces_curated_bgsub.pkl"
 TRACE_CSV = TRACE_FOLDER / "dff_traces_curated_bgsub.csv"
@@ -126,8 +133,11 @@ def load_masks_and_indices(mask_folder, Z, Y, X):
             print(f"[SKIP] {name}: empty mask after adjustment")
             continue
 
-        # Core = full mask (no erosion — keeps bright edge voxels)
-        core = m.copy()
+        # Core = eroded mask (removes edge voxels that may include background)
+        # Use ball(1) erosion; fall back to full mask for thin dendrites
+        core = binary_erosion(m, structure=ball(1))
+        if not core.any():
+            core = m.copy()  # too thin to erode
 
         # Shell = thin ring with 1-voxel gap to avoid self-contamination
         inner_dilate = binary_dilation(m, structure=ball(2))  # 2-voxel gap

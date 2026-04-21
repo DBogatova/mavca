@@ -27,7 +27,7 @@ import csv
 # ======= CONFIG =======
 DATE = "2026-03-31"
 MOUSE = "rbp4_132_phpeb"
-RUN = "run8"
+RUN = "run7"
 
 VOXEL_SIZE = (3.9, 1.0, 1.2)  # (Z,Y,X) μm
 NEIGHBOR_K_DEFAULT = 3
@@ -107,6 +107,11 @@ def load_data():
             if ev_file in event_cache:
                 bg3d_map[name] = event_cache[ev_file]
         print(f"  3D backgrounds: {len(bg3d_map)} masks from {len(event_cache)} events")
+        # Print mapping for verification
+        for name in names:
+            ev = name_to_event.get(name, "???")
+            has_bg = "✓" if name in bg3d_map else "✗"
+            print(f"    {has_bg} {name} → {ev}")
 
     # centroids in μm for NN search
     cents = []

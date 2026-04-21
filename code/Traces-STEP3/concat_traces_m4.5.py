@@ -35,7 +35,7 @@ mpl.rcParams['axes.unicode_minus'] = False
 # ===== CONFIG =====
 DATE = "2026-03-31"
 MOUSE = "rbp4_132_phpeb"
-RUNS = ["run8", "run9", "run10"]
+RUNS = ["run6", "run7"]
 
 FRAME_RATE = 5  # Hz
 SKIP_FIRST_SECONDS = 0.0
@@ -48,7 +48,7 @@ PROJECT_ROOT = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-den
 BASE = PROJECT_ROOT / "scape-data" / DATE / MOUSE
 
 # Masks from run8 (shared across all runs)
-MASK_RUN = "run8"
+MASK_RUN = "run7"
 MASK_FOLDER = BASE / MASK_RUN / "labelmaps_curated_dynamic"
 
 # Output goes into run8's traces folder

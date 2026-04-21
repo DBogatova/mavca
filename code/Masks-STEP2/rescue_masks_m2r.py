@@ -31,24 +31,31 @@ from skimage.draw import line as draw_line
 # ===== CONFIG =====
 DATE = "2026-03-31"
 MOUSE = "rbp4_132_phpeb"
-RUN = "run8"
+RUN = "run7"
 
 VOXEL_SIZE = (3.9, 1.0, 1.2)  # Z, Y, X µm
 VOXEL_VOL = float(np.prod(VOXEL_SIZE))
 
-# Event crop to rescue from
-EVENT_FILE = "event_group_0012.tif"
+# Event crops to rescue from (iterate one by one)
+EVENT_FILES = [
+    "event_group_0002.tif",
+    "event_group_0010.tif",
+    "event_group_0013.tif",
+    "event_group_0017.tif",
+    "event_group_0022.tif",
+    "event_group_0023.tif",
+]
 
 # Seed line width (pixels around each drawn line)
 SEED_WIDTH = 5
 
 # Thresholding on enhanced crop
-RESCUE_PERCENTILE = 97.0
+RESCUE_PERCENTILE = 95.0
 
 # Cleanup
 SLICE_CLOSE_K = 5
 SLICE_MIN_PIX = 5
-MIN_VOL = 4000.0  # µm³
+MIN_VOL = 2000.0  # µm³
 
 # ===== PATHS =====
 BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/"
@@ -175,75 +182,83 @@ def next_dend_id():
 
 
 def main():
-    event_path = EVENT_CROPS / EVENT_FILE
-    if not event_path.exists():
-        print(f"Event crop not found: {event_path}")
+    # Filter to events that exist
+    events = [e for e in EVENT_FILES if (EVENT_CROPS / e).exists()]
+    if not events:
+        print("No event crops found.")
         return
+    print(f"Rescuing from {len(events)} events: {events}")
 
-    print(f"Loading event crop: {EVENT_FILE}")
-    crop = tifffile.imread(str(event_path)).astype(np.float32)
-    T, Z, Y, X = crop.shape
-    print(f"  Shape: T={T}, Z={Z}, Y={Y}, X={X}")
+    v = napari.Viewer(title="Rescue Masks")
+    state = {"idx": 0, "crop": None, "enh": None, "masks": [],
+             "event": None, "T": 0, "Z": 0, "Y": 0, "X": 0}
 
-    # Temporal max MIP for background
-    tmax_mip = crop.max(axis=0).max(axis=0)  # (Y, X)
+    def _load_event(idx):
+        """Load event idx into the viewer."""
+        v.layers.clear()
+        ef = events[idx]
+        state["event"] = ef
+        state["masks"] = []
 
-    # Load existing masks from this event
-    existing_masks, existing_names = load_existing_masks_for_event(EVENT_FILE)
-    print(f"  Existing masks from this event: {len(existing_masks)}")
+        print(f"\n=== Event {idx+1}/{len(events)}: {ef} ===")
+        crop = tifffile.imread(str(EVENT_CROPS / ef)).astype(np.float32)
+        T, Z, Y, X = crop.shape
+        state["crop"] = crop
+        state["T"], state["Z"], state["Y"], state["X"] = T, Z, Y, X
+        print(f"  Shape: T={T}, Z={Z}, Y={Y}, X={X}")
 
-    # Build combined existing mask MIP for overlay
-    if existing_masks:
-        combined = np.zeros((Y, X), dtype=np.int32)
-        for i, m in enumerate(existing_masks):
-            mip = m.max(axis=0)  # Z-MIP
-            # Handle Y mismatch
-            my = mip.shape[0]
-            if my > Y:
-                mip = mip[:Y, :X]
-            elif my < Y:
-                tmp = np.zeros((Y, X), dtype=mip.dtype)
-                tmp[:my, :X] = mip[:, :X]
-                mip = tmp
-            combined[mip > 0] = i + 1
+        # Temporal max MIP
+        tmax_mip = crop.max(axis=0).max(axis=0)
 
-    # Enhance for later mask generation
-    print("  Enhancing crop...")
-    enh = enhance_crop(crop)
+        # Existing masks from this event
+        existing_masks, existing_names = load_existing_masks_for_event(ef)
+        print(f"  Existing masks: {len(existing_masks)}")
 
-    # ---- Napari ----
-    v = napari.Viewer(title=f"Rescue — {EVENT_FILE}")
+        # Enhance
+        print("  Enhancing...")
+        state["enh"] = enhance_crop(crop)
 
-    # Background MIP
-    lo, hi = np.percentile(tmax_mip, 2), np.percentile(tmax_mip, 99.5)
-    v.add_image(tmax_mip, name="event MIP", colormap="gray",
-                contrast_limits=(lo, hi))
+        # Background MIP
+        lo, hi = np.percentile(tmax_mip, 2), np.percentile(tmax_mip, 99.5)
+        v.add_image(tmax_mip, name="event MIP", colormap="gray",
+                    contrast_limits=(lo, hi))
 
-    # Existing masks overlay
-    if existing_masks:
-        v.add_labels(combined, name="existing masks", opacity=0.4)
-        for name in existing_names:
-            print(f"    {name}")
+        # Existing masks overlay
+        if existing_masks:
+            combined = np.zeros((Y, X), dtype=np.int32)
+            for i, m in enumerate(existing_masks):
+                mip = m.max(axis=0)
+                my = mip.shape[0]
+                if my > Y:
+                    mip = mip[:Y, :X]
+                elif my < Y:
+                    tmp = np.zeros((Y, X), dtype=mip.dtype)
+                    tmp[:my, :X] = mip[:, :X]
+                    mip = tmp
+                combined[mip > 0] = i + 1
+            v.add_labels(combined, name="existing masks", opacity=0.4)
+            for name in existing_names:
+                print(f"    {name}")
 
-    # Seeds layer — draw lines here
-    v.add_shapes(name="seeds", shape_type="path",
-                 edge_color="lime", edge_width=3)
+        # Seeds layer
+        v.add_shapes(name="seeds", shape_type="path",
+                     edge_color="lime", edge_width=3)
 
-    # State
-    rescued = {"masks": [], "saved": False}
+        v.title = f"Rescue — {ef}  ({idx+1}/{len(events)})"
 
     @v.bind_key("Control-g")
     def _generate(viewer):
         shapes_layer = v.layers["seeds"]
         if len(shapes_layer.data) == 0:
-            print("No seeds drawn. Draw lines on the 'seeds' layer first.")
+            print("No seeds drawn.")
             return
 
+        Y, X = state["Y"], state["X"]
         print(f"Generating masks from {len(shapes_layer.data)} seed lines...")
         seed_2d = lines_to_seed_mask(shapes_layer.data, Y, X, SEED_WIDTH)
         print(f"  Seed pixels: {seed_2d.sum()}")
 
-        masks = grow_masks_from_seeds(enh, seed_2d)
+        masks = grow_masks_from_seeds(state["enh"], seed_2d)
         print(f"  Generated {len(masks)} masks")
 
         # Remove old rescue layers
@@ -251,7 +266,6 @@ def main():
             if layer.name.startswith("rescue_"):
                 v.layers.remove(layer)
 
-        # Show in viewer
         for i, m in enumerate(masks):
             mip = m.max(axis=0)
             my = mip.shape[0]
@@ -262,72 +276,76 @@ def main():
                 tmp[:my, :] = mip
                 mip = tmp
             v.add_labels(mip.astype(np.int32) * (i + 1),
-                         name=f"rescue_{i:02d}",
-                         opacity=0.5)
+                         name=f"rescue_{i:02d}", opacity=0.5)
             vol = m.sum() * VOXEL_VOL
             print(f"    rescue_{i:02d}: {vol:.0f} µm³")
 
-        rescued["masks"] = masks
+        state["masks"] = masks
 
     @v.bind_key("Control-s")
-    def _save(viewer):
-        if not rescued["masks"]:
-            print("No rescued masks. Press Ctrl+G first.")
-            return
-        if rescued["saved"]:
-            print("Already saved.")
-            return
+    def _save_and_next(viewer):
+        ef = state["event"]
+        masks = state["masks"]
+        crop = state["crop"]
+        T, Y, X = state["T"], state["Y"], state["X"]
 
-        start_id = next_dend_id()
-        print(f"Saving {len(rescued['masks'])} rescued masks starting at dend_{start_id:03d}...")
+        if masks:
+            start_id = next_dend_id()
+            print(f"Saving {len(masks)} masks starting at dend_{start_id:03d}...")
 
-        # Read existing manifest
-        existing_rows = []
-        if MANIFEST.exists():
-            with open(MANIFEST, "r") as f:
-                existing_rows = list(csv.DictReader(f))
+            existing_rows = []
+            if MANIFEST.exists():
+                with open(MANIFEST, "r") as f:
+                    existing_rows = list(csv.DictReader(f))
 
-        new_rows = []
-        for i, m in enumerate(rescued["masks"]):
-            did = start_id + i
-            mask_path = OUT_LABELS / f"dend_{did:03d}_labelmap.tif"
-            tifffile.imwrite(str(mask_path), (m * (did + 1)).astype(np.uint16))
+            new_rows = []
+            for i, m in enumerate(masks):
+                did = start_id + i
+                mask_path = OUT_LABELS / f"dend_{did:03d}_labelmap.tif"
+                tifffile.imwrite(str(mask_path), (m * (did + 1)).astype(np.uint16))
 
-            # 2D background
-            bg2d = crop.max(axis=0).max(axis=0).astype(np.float16)  # (Y,X)
-            bg_path = OUT_BGS / f"dend_{did:03d}_background_2dMIP.tif"
-            tifffile.imwrite(str(bg_path), bg2d)
+                bg2d = crop.max(axis=0).max(axis=0).astype(np.float16)
+                bg_path = OUT_BGS / f"dend_{did:03d}_background_2dMIP.tif"
+                tifffile.imwrite(str(bg_path), bg2d)
 
-            new_rows.append({
-                "dend_id": did,
-                "labelmap_path": str(mask_path),
-                "background_path": str(bg_path),
-                "source_event_file": EVENT_FILE,
-                "event_t_start": 0,
-                "event_t_end": T,
-                "voxel_size_z": VOXEL_SIZE[0],
-                "voxel_size_y": VOXEL_SIZE[1],
-                "voxel_size_x": VOXEL_SIZE[2],
-                "volume_um3": float(m.sum() * VOXEL_VOL),
-            })
-            print(f"    Saved dend_{did:03d} ({new_rows[-1]['volume_um3']:.0f} µm³)")
+                new_rows.append({
+                    "dend_id": did,
+                    "labelmap_path": str(mask_path),
+                    "background_path": str(bg_path),
+                    "source_event_file": ef,
+                    "event_t_start": 0,
+                    "event_t_end": T,
+                    "voxel_size_z": VOXEL_SIZE[0],
+                    "voxel_size_y": VOXEL_SIZE[1],
+                    "voxel_size_x": VOXEL_SIZE[2],
+                    "volume_um3": float(m.sum() * VOXEL_VOL),
+                })
+                print(f"    Saved dend_{did:03d}")
 
-        # Append to manifest
-        all_rows = existing_rows + new_rows
-        fieldnames = list(all_rows[0].keys())
-        with open(MANIFEST, "w", newline="") as f:
-            w = csv.DictWriter(f, fieldnames=fieldnames)
-            w.writeheader()
-            w.writerows(all_rows)
+            all_rows = existing_rows + new_rows
+            fieldnames = list(all_rows[0].keys())
+            with open(MANIFEST, "w", newline="") as f:
+                w = csv.DictWriter(f, fieldnames=fieldnames)
+                w.writeheader()
+                w.writerows(all_rows)
+            print(f"✅ Saved to manifest")
+        else:
+            print("No masks to save, skipping event.")
 
-        rescued["saved"] = True
-        print(f"✅ Manifest updated: {MANIFEST}")
+        # Advance to next event
+        state["idx"] += 1
+        if state["idx"] < len(events):
+            _load_event(state["idx"])
+        else:
+            print(f"\n✅ Done — all {len(events)} events processed.")
+            from napari.utils.notifications import show_info
+            show_info(f"Done — all {len(events)} events processed.")
 
     print("\n=== INSTRUCTIONS ===")
     print("1. Draw lines on 'seeds' layer where dendrites are missing")
-    print("   (existing masks shown in color overlay)")
     print("2. Ctrl+G = generate masks from seeds")
-    print("3. Ctrl+S = save rescued masks")
+    print("3. Ctrl+S = save & advance to next event (or skip if no seeds)")
+    _load_event(0)
     napari.run()
 
 

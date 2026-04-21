@@ -16,9 +16,9 @@ from qtpy.QtCore import QTimer
 
 # ---- Config ----
 BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/"
-            "apical-dendrites-2025/scape-data/2026-03-20/rbp4cre_139_phpeb/run3")
+            "apical-dendrites-2025/scape-data/2026-03-31/rbp4_132_phpeb/run7")
 
-MOVIE_PATH  = BASE / "overlays" / "chunk_01_0000-0575_dff.tif"
+MOVIE_PATH  = BASE / "overlays" / "chunk_01_0000-0545_dff.tif"
 STATIC_PATH = BASE / "overlays" / "static_masked_max_over_time.tif"
 
 VOXEL_ZYX = (3.9, 1.0, 1.2)
@@ -35,6 +35,8 @@ movie = tifffile.imread(str(MOVIE_PATH)).astype(np.float32)
 movie = np.clip(movie, NOISE_FLOOR, None) - NOISE_FLOOR
 T = movie.shape[0]
 p5, p95 = np.nanpercentile(movie, 5), np.nanpercentile(movie, 95)
+if p95 <= p5:
+    p95 = max(p5 + 0.01, float(np.nanmax(movie)))
 
 print("Loading static reference...")
 static = tifffile.imread(str(STATIC_PATH)).astype(np.float32)

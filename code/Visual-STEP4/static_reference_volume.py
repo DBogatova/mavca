@@ -17,15 +17,17 @@ import tifffile
 # ===== CONFIG =====
 DATE = "2026-03-31"
 MOUSE = "rbp4_132_phpeb"
-RUN = "run8"
+RUN = "run7"
 
-Y_CROP = 0  # crop bottom N rows of Y (0 = no crop)
+Y_CROP = 3  # crop bottom N rows of Y to match masks
+SKIP_FIRST_SECONDS = 0.0  # drop first N seconds
+FRAME_RATE = 5  # Hz
 CHUNK_T = 50  # frames per chunk for memory efficiency
 
 # ===== PATHS =====
 BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/"
             "apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
-STACK_PATH = BASE / "overlays" / "chunk_01_0000-0600_dff.tif"
+STACK_PATH = BASE / "overlays" / "chunk_01_0000-0545_dff.tif"
 MASK_FOLDER = BASE / "labelmaps_curated_dynamic"
 OUTPUT_PATH = BASE / "overlays" / "static_masked_max_over_time.tif"
 
@@ -46,8 +48,15 @@ def load_union_mask(folder, shape_zyx, selected=None):
 
     union = np.zeros(shape_zyx, dtype=bool)
     loaded = 0
+    Z_t, Y_t, X_t = shape_zyx
     for p in paths:
         m = tifffile.imread(p) > 0
+        mz, my, mx = m.shape
+        # Handle Y mismatch (masks may be Y-cropped differently)
+        if my < Y_t:
+            m = np.pad(m, ((0,0),(0,Y_t-my),(0,0)), mode='constant')
+        elif my > Y_t:
+            m = m[:, :Y_t, :]
         if m.shape != shape_zyx:
             print(f"  [SKIP] {p.name}: shape {m.shape} != {shape_zyx}")
             continue
@@ -82,11 +91,13 @@ def main():
     print("Loading masks...")
     union = load_union_mask(MASK_FOLDER, shape_zyx, selected=SELECTED_MASKS)
 
-    # --- Compute temporal max in chunks ---
-    print("Computing temporal max (chunk-wise)...")
+    # --- Compute temporal max in chunks (skip first seconds) ---
+    skip_frames = int(SKIP_FIRST_SECONDS * FRAME_RATE) if SKIP_FIRST_SECONDS > 0 else 0
+    t_start = skip_frames
+    print(f"Computing temporal max (chunk-wise, skipping first {skip_frames} frames)...")
     max_vol = np.full(shape_zyx, -np.inf, dtype=np.float32)
 
-    for t0 in range(0, T, CHUNK_T):
+    for t0 in range(t_start, T, CHUNK_T):
         t1 = min(t0 + CHUNK_T, T)
         chunk = np.asarray(store[t0:t1]).astype(np.float32)
         if Y_CROP > 0:
@@ -106,6 +117,11 @@ def main():
         mask_paths = [p for p in mask_paths if p.stem.replace("_labelmap", "") in sel]
     for p in mask_paths:
         m = tifffile.imread(p) > 0
+        mz, my, mx = m.shape
+        if my < shape_zyx[1]:
+            m = np.pad(m, ((0,0),(0,shape_zyx[1]-my),(0,0)), mode='constant')
+        elif my > shape_zyx[1]:
+            m = m[:, :shape_zyx[1], :]
         if m.shape != shape_zyx:
             continue
         vals = max_vol[m]
