@@ -18,14 +18,17 @@ from scipy.ndimage import label
 from collections import defaultdict
 
 # Configuration
-DATE = "2025-12-25"
-MOUSE = "rAi162_phpeb"
-RUN = "run1"
+DATE = "2026-04-16"
+MOUSE = "rbp4_132_phpeb"
+RUN = "run7"
 
 # Thresholds
 SPATIAL_OVERLAP_THRESHOLD = 0.05  # Minimum Jaccard index for spatial overlap
 TEMPORAL_CORR_THRESHOLD = 0.3     # Minimum correlation during active periods
 MIN_ACTIVE_FRAMES = 10            # Minimum frames to consider for correlation
+
+# Masks to exclude from branch detection
+EXCLUDE_MASKS = ["dend_008"]
 
 # Paths
 BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
@@ -35,9 +38,15 @@ OUTPUT_FOLDER = BASE / "dendrite_branches"
 OUTPUT_FOLDER.mkdir(exist_ok=True)
 
 def load_masks():
-    """Load all 3D masks"""
+    """Load all 3D masks, excluding EXCLUDE_MASKS"""
     masks = {}
     mask_files = sorted(MASK_FOLDER.glob("dend_*_labelmap.tif"))
+    for mf in mask_files:
+        name = mf.stem.replace("_labelmap", "")
+        if name in EXCLUDE_MASKS:
+            continue
+        masks[name] = tifffile.imread(mf).astype(bool)
+    return masks
     
     for mask_path in mask_files:
         name = mask_path.stem.replace("_labelmap", "")

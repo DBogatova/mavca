@@ -41,7 +41,7 @@ from scipy.ndimage import gaussian_filter
 # =========================
 # CONFIG
 # =========================
-DATE = "2026-03-31"
+DATE = "2026-04-16"
 MOUSE = "rbp4_132_phpeb"
 RUN = "run7"
 
@@ -58,6 +58,16 @@ OUT_FOLDER.mkdir(exist_ok=True, parents=True)
 # ---- scoring ----
 P_HI = 99.9
 P_MID = 60.0
+
+# Dendrite-favoring: subtract broad spatial background before scoring
+# This removes the surface strip (which is spatially smooth/broad)
+SUBTRACT_SPATIAL_BG = True
+SPATIAL_BG_SIGMA = 15.0  # gaussian blur for background estimation (pixels)
+
+# Sparseness bonus: reward frames where bright pixels are spatially sparse
+# (thin dendrites = few bright pixels; surface = many bright pixels)
+USE_SPARSENESS = True
+SPARSENESS_THRESHOLD_PCT = 95.0  # what counts as "bright"
 
 # Optional: restrict Z for MIP (use top Z planes, highest index)
 TOP_Z_PLANES = 15        # None to use all Z; 15 often works well for apicals
@@ -110,12 +120,33 @@ def mip_z(vol_zyx: np.ndarray) -> np.ndarray:
 
 def score_mip(mip: np.ndarray) -> float:
     """
-    Legacy score: p_hi - p_mid on a (smoothed) MIP.
+    Score a MIP for dendrite-like activity.
+    
+    1) Optionally subtract broad spatial background (removes surface strip)
+    2) Base score: p_hi - p_mid (bright sparse structures)
+    3) Optionally add sparseness bonus (fewer bright pixels = more dendrite-like)
     """
     m = mip.astype(np.float32, copy=False)
     if MIP_SMOOTH_SIGMA and MIP_SMOOTH_SIGMA > 0:
         m = gaussian_filter(m, sigma=float(MIP_SMOOTH_SIGMA))
-    return float(np.percentile(m, P_HI) - np.percentile(m, P_MID))
+    
+    # Subtract broad spatial background (kills surface strip)
+    if SUBTRACT_SPATIAL_BG:
+        bg = gaussian_filter(m, sigma=SPATIAL_BG_SIGMA)
+        m = m - bg
+        m[m < 0] = 0
+    
+    base_score = float(np.percentile(m, P_HI) - np.percentile(m, P_MID))
+    
+    if USE_SPARSENESS:
+        # Fraction of pixels above threshold — lower = sparser = more dendrite-like
+        thr = np.percentile(m, SPARSENESS_THRESHOLD_PCT)
+        bright_frac = (m > thr).mean()
+        # Invert: sparse frames get bonus (multiply by 1/fraction, capped)
+        sparseness_bonus = 1.0 / (bright_frac + 0.01)
+        return base_score * min(sparseness_bonus, 10.0)
+    
+    return base_score
 
 
 def contrast_stretch_01(img: np.ndarray, p_lo: float, p_hi: float) -> np.ndarray:

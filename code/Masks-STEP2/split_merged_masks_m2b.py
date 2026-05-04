@@ -42,7 +42,7 @@ from skimage.filters import sato
 from skimage.measure import regionprops
 
 # ================== CONFIG ==================
-DATE = "2026-03-31"
+DATE = "2026-04-16"
 MOUSE = "rbp4_132_phpeb"
 RUN = "run7"
 

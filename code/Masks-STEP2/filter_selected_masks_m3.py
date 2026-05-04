@@ -25,7 +25,7 @@ from scipy.spatial.distance import cdist
 import csv
 
 # ======= CONFIG =======
-DATE = "2026-03-31"
+DATE = "2026-04-16"
 MOUSE = "rbp4_132_phpeb"
 RUN = "run7"
 
@@ -160,7 +160,7 @@ def save_curated(masks, names, deleted, edited):
     print(f"✅ Saved {count} masks to {OUTPUT_FOLDER}")
     print(f"📝 Log: {LOG_PATH}")
 
-# ======= MAIN (Napari UI) =======
+# ======= MAIN =======
 def main():
     masks, names, bg_map, cents, bg3d_map = load_data()
     N = len(masks)

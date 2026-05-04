@@ -12,26 +12,26 @@ from scipy.io import loadmat
 import tifffile
 
 # ===== CONFIG =====
-DATE = "2026-03-31"
+DATE = "2026-04-16"
 MOUSE = "rbp4_132_phpeb"
-RUN = "run8"
+RUN = "run7"
 
 FRAME_RATE = 5  # Hz
-SKIP_FIRST_SECONDS = 12.0
-CROP_START_SECONDS = 12.0  # cut first N seconds from all signals
+SKIP_FIRST_SECONDS = 13.0
+CROP_START_SECONDS = 13.0  # cut first N seconds from all signals
 HAS_ACH = False
 
 # ===== PATHS =====
 BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/"
             "apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
-BEHAVIOR_MAT = BASE / "behavior" / "rbp4_132_phpeb_26-03-31_Run008_behavior.mat"
+BEHAVIOR_MAT = BASE / "behavior" / "rbp4_132_phpeb_26-04-16_Run007_behavior.mat"
 OUTPUT_PATH = BASE / "behavior_combined_plot.png"
 
 
 def load_calcium_ach_data():
     """Compute global Ca ΔF/F from raw stack (mean of all non-dead voxels)."""
     raw_clean = BASE / "preprocessed" / "raw_clean.tif"
-    raw_orig = BASE / "raw" / f"runA_{RUN}_{MOUSE}-reslice-bin.tif"
+    raw_orig = BASE / "raw" / f"runB_{RUN}_{MOUSE}-reslice-bin.tif"
     raw_path = raw_clean if raw_clean.exists() else raw_orig
 
     if not raw_path.exists():

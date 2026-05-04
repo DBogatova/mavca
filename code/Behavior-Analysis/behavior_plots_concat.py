@@ -18,10 +18,10 @@ from scipy.io import loadmat
 import tifffile
 
 # ===== CONFIG =====
-DATE = "2026-03-31"
+DATE = "2026-04-16"
 MOUSE = "rbp4_132_phpeb"
-RUNS = ["run8", "run9", "run10"]
-RUN_NUMS = ["008", "009", "010"]  # for filenames
+RUNS = ["run6", "run7"]
+RUN_NUMS = ["006", "007"]  # for filenames
 
 FRAME_RATE = 5  # Hz (imaging)
 SKIP_FIRST_SECONDS = 13.0
@@ -37,7 +37,7 @@ def load_ca_one_run(run):
     """Compute global Ca ΔF/F from raw stack for one run."""
     base = BASE_ROOT / run
     raw_clean = base / "preprocessed" / "raw_clean.tif"
-    raw_orig = base / "raw" / f"runA_{run}_{MOUSE}-reslice-bin.tif"
+    raw_orig = base / "raw" / f"runB_{run}_{MOUSE}-reslice-bin.tif"
     raw_path = raw_clean if raw_clean.exists() else raw_orig
 
     if not raw_path.exists():

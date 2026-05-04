@@ -11,7 +11,7 @@ import matplotlib.cm as cm
 from pathlib import Path
 
 # ---- Config ----
-STACK_PATH = "/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data/2026-03-31/rbp4_132_phpeb/run8/overlays/chunk_01_0000-0600_dff.tif"
+STACK_PATH = "/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data/2026-04-16/rbp4_132_phpeb/run7/overlays/chunk_01_0000-0535_dff.tif"
 
 # (T, Z, Y, X): time left as frames; spatial voxels in µm
 VOXEL_SCALE = (1.0, 3.9, 1.0, 1.2)  # T, Z, Y, X

@@ -35,19 +35,19 @@ mpl.rcParams['axes.unicode_minus'] = False
 # ===== CONFIG =====
 DATE = "2026-03-31"
 MOUSE = "rbp4_132_phpeb"
-RUN = "run7"
+RUN = "run8"
 
 FRAME_RATE = 5  # Hz
 ARTIFACT_Z = -0.5  # replace ΔF/F < -0.5 with 0 (before smoothing)
 SMOOTH_SIGMA = 0.5  # for gaussian_filter1d
-SKIP_FIRST_SECONDS = 11.0  # skip initial transient for F0 baseline
+SKIP_FIRST_SECONDS = 13  # skip initial transient for F0 baseline
 CHUNK_T = 120  # time frames per chunk for memory efficiency
 
 # ===== PATHS =====
 PROJECT_ROOT = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025")
 BASE = PROJECT_ROOT / "scape-data" / DATE / MOUSE / RUN
 RAW_CLEAN_PATH = BASE / "preprocessed" / "raw_clean.tif"
-RAW_ORIG_PATH = BASE / "raw" / f"runA_run7_rbp4_132_phpeb-reslice-bin.tif"
+RAW_ORIG_PATH = BASE / "raw" / f"runA_run8_rbp4_132_phpeb-reslice-bin.tif"
 RAW_STACK_PATH = RAW_CLEAN_PATH if RAW_CLEAN_PATH.exists() else RAW_ORIG_PATH
 
 # Masks: set MASK_SOURCE_RUN to use masks from a different run (e.g. "run8")
@@ -62,9 +62,9 @@ TRACE_PKL = TRACE_FOLDER / "dff_traces_curated_bgsub.pkl"
 TRACE_CSV = TRACE_FOLDER / "dff_traces_curated_bgsub.csv"
 PREVIEW_FOLDER = BASE / "trace_previews_curated"; PREVIEW_FOLDER.mkdir(exist_ok=True)
 
-PLOT_ALL_TRACES = True
-SELECTED_NAMES = ["dend_000", "dend_002","dend_003","dend_007", "dend_010", "dend_012", "dend_013", "dend_015", "dend_016","dend_017", "dend_018", "dend_020" , "dend_021",
-                  "dend_024", "dend_025", "dend_026", "dend_027" , "dend_030", "dend_036", "dend_038", "dend_040", "dend_041", "dend_047"]
+PLOT_ALL_TRACES = False
+SELECTED_NAMES = ["dend_005", "dend_018","dend_020","dend_021", "dend_027", "dend_037", "dend_038", "dend_041", "dend_042","dend_043", "dend_045", "dend_047" , "dend_048",
+                  "dend_049", "dend_051", "dend_054", "dend_059" , "dend_061", "dend_063"]
 
 
 # ================== ΔF/F Stack Reader ==================

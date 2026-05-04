@@ -19,7 +19,7 @@ from scipy.io import loadmat
 import tifffile
 
 # ===== CONFIG =====
-DATE = "2026-03-31"
+DATE = "2026-04-16"
 MOUSE = "rbp4_132_phpeb"
 RUN = "run7"
 
@@ -29,8 +29,8 @@ RUN_NUMS = []
 MASK_RUN = "run7"
 
 FRAME_RATE = 5.0
-CROP_START_SECONDS = 11.0
-SKIP_FIRST_SECONDS = 11.0
+CROP_START_SECONDS = 13.0
+SKIP_FIRST_SECONDS = 13.0
 DFF_THRESHOLD = 0.3
 SHOW_CLUSTER_BANDS = False
 
