@@ -20,10 +20,10 @@ import tifffile
 import imageio
 
 # ===== CONFIG =====
-DATE = "2026-03-31"
+DATE = "2026-04-16"
 MOUSE = "rbp4_132_phpeb"
-RUN = "run8"
-RUN_NUM = "008"
+RUN = "run5"
+RUN_NUM = "005"
 
 CROP_START_SECONDS = 12.0
 IMAGING_FRAME_RATE = 5
@@ -57,14 +57,32 @@ def load_pupil():
     mat = loadmat(str(mats[0]))
     p = mat['pupil']['pupil_raw'][0][0].flatten()
     p = gaussian_filter1d(p, sigma=2)
-    t = np.arange(len(p)) / 10.0
-    mask = t >= CROP_START_SECONDS
-    return t[mask] - CROP_START_SECONDS, p[mask]
+    t_pupil = np.arange(len(p)) / 10.0  # Basler at 10 Hz
+
+    # Compute Basler-to-SCAPE offset from trigger CSV
+    trigger_csv = list((BASE / "trigger").glob("*_trigger.csv"))
+    if trigger_csv:
+        trig = pd.read_csv(trigger_csv[0])
+        # First baslerExposureTrigger rising edge
+        basler_start = trig.loc[trig['baslerExposureTrigger'].diff() == 1, 'time_s'].iloc[0]
+        # First AndorXylaTrigger rising edge
+        andor_start = trig.loc[trig['AndorXylaTrigger'].diff() == 1, 'time_s'].iloc[0]
+        offset = andor_start - basler_start  # seconds Basler runs before SCAPE
+        print(f"  Pupil: Basler→SCAPE offset = {offset:.3f}s")
+    else:
+        offset = 0.0
+        print("  Pupil: no trigger CSV, assuming no offset")
+
+    # Align pupil to SCAPE time: crop the offset, then crop warmup
+    total_crop = offset + CROP_START_SECONDS
+    mask = t_pupil >= total_crop
+    print(f"  Pupil: {len(p)} samples, cropping {total_crop:.2f}s (offset {offset:.2f} + warmup {CROP_START_SECONDS})")
+    return t_pupil[mask] - total_crop, p[mask]
 
 
 def load_global_ca():
     raw_clean = BASE / "preprocessed" / "raw_clean.tif"
-    raw_orig = BASE / "raw" / f"runA_{RUN}_{MOUSE}-reslice-bin.tif"
+    raw_orig = BASE / "raw" / f"runB_{RUN}_{MOUSE}-reslice-bin.tif"
     raw_path = raw_clean if raw_clean.exists() else raw_orig
     if not raw_path.exists():
         return None, None
@@ -108,7 +126,7 @@ def main():
 
     # Get imaging duration
     raw_clean = BASE / "preprocessed" / "raw_clean.tif"
-    raw_orig = BASE / "raw" / f"runA_{RUN}_{MOUSE}-reslice-bin.tif"
+    raw_orig = BASE / "raw" / f"runB_{RUN}_{MOUSE}-reslice-bin.tif"
     raw_path = raw_clean if raw_clean.exists() else raw_orig
     tf = tifffile.TiffFile(str(raw_path))
     T_raw = tf.series[0].shape[0]

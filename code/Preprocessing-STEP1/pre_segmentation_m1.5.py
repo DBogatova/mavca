@@ -1,33 +1,21 @@
 #!/usr/bin/env python3
 """
-Module 1.5: Best-frame selection per event crop
+Module 1.5: Best-frame selection using ΔF/F MIP for scoring, raw 4D for 3D output
 
-This is the closest-to-what-worked selector that produced filenames like:
-  bestframe_event_group_0009_peak319_t00010_rank01_mip.png
+Strategy:
+  - Score frames using ΔF/F MIP stack (T, Y, X) — has sharp dendrite contrast
+  - Save 3D volumes from raw 4D stack (T, Z, Y, X) — needed for M2 mask detection
+  - Uses event_groups.csv from M1 to know which frame ranges are events
+  - Falls back to event crop files if ΔF/F stack not available
 
-Key behaviors:
-- Works on event crops saved by Module 1 (T,Z,Y,X)
-- For each frame t in the crop:
-    * compute Z-MIP (optionally only TOP_Z_PLANES)
-    * score(t) = p_hi(MIP) - p_mid(MIP)  (dendrite-favoring "sparse bright" score)
-- Find the peak frame (argmax of score trace)
-- Select TOP_K frames from a window around the peak, enforcing MIN_SEP
-- Save:
-    bestframe_<event_group_####>_peak<peak_tag>_t<local>_rank##_3d.tif
-    bestframe_<event_group_####>_peak<peak_tag>_t<local>_rank##_mip.png
-
-CRITICAL: PNGs use percentile contrast-stretch to [0,1] before saving.
-This is what makes trunks look "sharp" instead of gray/foggy.
-
-Peak tag behavior (legacy-matching):
-- If input filename contains "..._peak#####..." use that number (e.g., peak56, peak00319)
-- Otherwise use the local peak index (peak_local)
-
-No extra scoring terms. No Laplacian. No tubeness. No surprises.
+Outputs:
+  bestframe_event_group_####_peak<global>_t<local>_rank##_3d.tif   (Z,Y,X)
+  bestframe_event_group_####_peak<global>_t<local>_rank##_mip.png  (annotated)
 """
 
 from __future__ import annotations
 
+import csv
 import re
 import gc
 from pathlib import Path
@@ -43,151 +31,107 @@ from scipy.ndimage import gaussian_filter
 # =========================
 DATE = "2026-04-16"
 MOUSE = "rbp4_132_phpeb"
-RUN = "run7"
+RUN = "run1"
+FS_HZ = 5.0
 
+BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/"
+            "apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
 
-BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
+# ΔF/F MIP stack (T, Y, X) — used for SCORING (sharp contrast)
+DFF_STACK_PATH = BASE / "raw" / f"runB_{RUN}_{MOUSE}-reslice-bin-dff.tif"
+# Raw 4D stack (T, Z, Y, X) — used for SAVING 3D best frames
+RAW_4D_PATH = BASE / "raw" / f"runB_{RUN}_{MOUSE}-reslice-bin.tif"
+# How many seconds M1 skipped (event_groups.csv indices are relative to trimmed stack)
+M1_SKIP_SECONDS = 12.0  # set to match find_events_m1.py SKIP_FIRST_SECONDS
 
-# Point this to the folder containing your Module 1 event crops
-EVENT_FOLDER = BASE / "preprocessed" / "event_crops"   # <<< change if needed
+# Fallback: event crops from M1
+EVENT_FOLDER = BASE / "preprocessed" / "event_crops"
+EVENT_GROUPS_CSV = BASE / "preprocessed" / "event_groups.csv"
 
-# Output folder
+# Output
 OUT_FOLDER = BASE / "preprocessed" / "best_frames"
 OUT_FOLDER.mkdir(exist_ok=True, parents=True)
 
 # ---- scoring ----
 P_HI = 99.9
 P_MID = 60.0
-
-# Dendrite-favoring: subtract broad spatial background before scoring
-# This removes the surface strip (which is spatially smooth/broad)
 SUBTRACT_SPATIAL_BG = True
-SPATIAL_BG_SIGMA = 15.0  # gaussian blur for background estimation (pixels)
-
-# Sparseness bonus: reward frames where bright pixels are spatially sparse
-# (thin dendrites = few bright pixels; surface = many bright pixels)
-USE_SPARSENESS = True
-SPARSENESS_THRESHOLD_PCT = 95.0  # what counts as "bright"
-
-# Optional: restrict Z for MIP (use top Z planes, highest index)
-TOP_Z_PLANES = 15        # None to use all Z; 15 often works well for apicals
-
-# Optional: very light MIP smoothing for stability
-# Set to 0.0 if you want maximum crispness
+SPATIAL_BG_SIGMA = 15.0
 MIP_SMOOTH_SIGMA = 0.0
 
+# ---- temporal baseline subtraction ----
+# Subtract the quietest frame (scaled) from all frames before scoring.
+# This removes static background and reveals transient dendrite activity.
+SUBTRACT_TEMPORAL_BG = True
+TEMPORAL_BG_SCALE = 0.8  # scale factor for quiet frame (< 1.0 catches dimmer cells)
+
+# ---- Z-MIP for raw 4D ----
+TOP_Z_PLANES = 15  # None = use all Z
+
 # ---- selection ----
-PEAK_HALF_WINDOW = 6     # choose candidates from [peak-6, peak+6]
-TOP_K = 3                # how many frames to save per crop
-MIN_SEP = 1              # enforce spacing between selected frames
+TOP_K = 5
+MIN_SEP = 3
+MIN_SCORE_RATIO = 0.5  # skip frames scoring below this fraction of the best frame's score
 
-# ---- PNG visualization (contrast stretch) ----
-PNG_P_LO = 1.0           # lower percentile for display scaling
-PNG_P_HI = 99.7          # upper percentile for display scaling
+# ---- PNG ----
+PNG_P_LO = 1.0
+PNG_P_HI = 99.7
 PNG_DPI = 200
-
-
-# =========================
-# Regex helpers (legacy)
-# =========================
-RE_EVENT_GROUP_ID = re.compile(r"(event_group_\d{4})")
-RE_PEAK_IN_NAME = re.compile(r"_peak(\d{1,6})")  # accepts peak56 or peak00319
-
-
-def extract_event_group_id(stem: str) -> str:
-    m = RE_EVENT_GROUP_ID.search(stem)
-    return m.group(1) if m else stem
-
-
-def extract_peak_tag_from_name(stem: str) -> int | None:
-    m = RE_PEAK_IN_NAME.search(stem)
-    return int(m.group(1)) if m else None
 
 
 # =========================
 # Helpers
 # =========================
-def mip_z(vol_zyx: np.ndarray) -> np.ndarray:
-    """
-    Z-MIP on (Z,Y,X), optionally restricted to TOP_Z_PLANES (highest index planes).
-    """
+def mip_z(vol_zyx):
+    """Z-MIP, optionally restricted to top Z planes."""
     v = vol_zyx
     if TOP_Z_PLANES is not None and TOP_Z_PLANES > 0:
         z0 = max(v.shape[0] - TOP_Z_PLANES, 0)
-        v = v[z0:, :, :]
+        v = v[z0:]
     return np.nanmax(v, axis=0)
 
 
-def score_mip(mip: np.ndarray) -> float:
-    """
-    Score a MIP for dendrite-like activity.
-    
-    1) Optionally subtract broad spatial background (removes surface strip)
-    2) Base score: p_hi - p_mid (bright sparse structures)
-    3) Optionally add sparseness bonus (fewer bright pixels = more dendrite-like)
-    """
-    m = mip.astype(np.float32, copy=False)
+def score_frame(mip_2d):
+    """Sparseness score on a 2D MIP. Favors sharp bright dendrites."""
+    m = mip_2d.astype(np.float32, copy=False)
     if MIP_SMOOTH_SIGMA and MIP_SMOOTH_SIGMA > 0:
         m = gaussian_filter(m, sigma=float(MIP_SMOOTH_SIGMA))
-    
-    # Subtract broad spatial background (kills surface strip)
     if SUBTRACT_SPATIAL_BG:
         bg = gaussian_filter(m, sigma=SPATIAL_BG_SIGMA)
         m = m - bg
         m[m < 0] = 0
-    
-    base_score = float(np.percentile(m, P_HI) - np.percentile(m, P_MID))
-    
-    if USE_SPARSENESS:
-        # Fraction of pixels above threshold — lower = sparser = more dendrite-like
-        thr = np.percentile(m, SPARSENESS_THRESHOLD_PCT)
-        bright_frac = (m > thr).mean()
-        # Invert: sparse frames get bonus (multiply by 1/fraction, capped)
-        sparseness_bonus = 1.0 / (bright_frac + 0.01)
-        return base_score * min(sparseness_bonus, 10.0)
-    
-    return base_score
+    return float(np.percentile(m, P_HI) - np.percentile(m, P_MID))
 
 
-def contrast_stretch_01(img: np.ndarray, p_lo: float, p_hi: float) -> np.ndarray:
-    """
-    Percentile stretch to [0,1] for consistent PNG appearance.
-    """
+def contrast_stretch_01(img, p_lo, p_hi):
     m = img.astype(np.float32, copy=False)
     finite = np.isfinite(m)
     if not finite.any():
         return np.zeros_like(m, dtype=np.float32)
-
     lo, hi = np.percentile(m[finite], (p_lo, p_hi))
     if hi <= lo:
         return np.zeros_like(m, dtype=np.float32)
-
-    m = (m - lo) / (hi - lo)
-    return np.clip(m, 0, 1).astype(np.float32)
+    return np.clip((m - lo) / (hi - lo), 0, 1).astype(np.float32)
 
 
-def save_mip_png(path: Path, mip: np.ndarray):
-    """
-    Save MIP PNG with fixed [0,1] scaling after contrast stretch.
-    """
+def save_mip_png(path, mip, title=""):
     m01 = contrast_stretch_01(mip, PNG_P_LO, PNG_P_HI)
     plt.figure(figsize=(5, 5))
     plt.imshow(m01, cmap="gray", vmin=0, vmax=1)
+    if title:
+        plt.title(title, fontsize=9, color="white",
+                  bbox=dict(facecolor="black", alpha=0.6, pad=2))
     plt.axis("off")
     plt.tight_layout(pad=0)
     plt.savefig(path, dpi=PNG_DPI)
     plt.close()
 
 
-def select_topk_with_spacing(cands: np.ndarray, scores: np.ndarray, k: int, min_sep: int) -> list[int]:
-    """
-    Choose up to k indices from cands with highest scores, enforcing min separation.
-    Returns chosen indices (subset of cands).
-    """
-    if cands.size == 0:
-        return []
-    order = cands[np.argsort(scores[cands])[::-1]]
-    chosen: list[int] = []
+def select_topk_with_spacing(n_frames, scores, k, min_sep):
+    """Select top-k scoring frames with minimum spacing."""
+    cands = np.arange(n_frames)
+    order = cands[np.argsort(scores)[::-1]]
+    chosen = []
     for t in order:
         t = int(t)
         if all(abs(t - c) >= min_sep for c in chosen):
@@ -201,62 +145,165 @@ def select_topk_with_spacing(cands: np.ndarray, scores: np.ndarray, k: int, min_
 # MAIN
 # =========================
 def main():
-    paths = sorted(EVENT_FOLDER.glob("*.tif"))
-    if not paths:
-        raise FileNotFoundError(f"No .tif files found in {EVENT_FOLDER}")
+    skip_offset = int(M1_SKIP_SECONDS * FS_HZ)
 
-    print(f"Input:  {EVENT_FOLDER}")
+    # --- Load ΔF/F MIP (T, Y, X) for scoring ---
+    if DFF_STACK_PATH.exists():
+        print(f"Loading ΔF/F MIP for scoring: {DFF_STACK_PATH.name}")
+        dff_mip = tifffile.imread(str(DFF_STACK_PATH)).astype(np.float32)
+        # Handle if accidentally 4D
+        if dff_mip.ndim == 4:
+            print(f"  Got 4D {dff_mip.shape}, taking Z-MIP...")
+            dff_mip = dff_mip.max(axis=1)
+        print(f"  Shape: {dff_mip.shape} (T, Y, X)")
+    else:
+        dff_mip = None
+        print(f"ΔF/F MIP not found: {DFF_STACK_PATH}")
+
+    # --- Load raw 4D stack for 3D output ---
+    if RAW_4D_PATH.exists():
+        print(f"Loading raw 4D stack: {RAW_4D_PATH.name}")
+        raw4d = tifffile.imread(str(RAW_4D_PATH)).astype(np.float32)
+        if raw4d.ndim == 3:
+            raw4d = raw4d[:, np.newaxis, :, :]
+        print(f"  Shape: {raw4d.shape} (T, Z, Y, X)")
+    else:
+        raw4d = None
+        print(f"Raw 4D not found: {RAW_4D_PATH}")
+
+    if dff_mip is None and raw4d is None:
+        print("Neither ΔF/F nor raw 4D found. Cannot proceed.")
+        return
+
+    # --- Load event groups ---
+    events = []
+    if EVENT_GROUPS_CSV.exists():
+        with open(EVENT_GROUPS_CSV) as f:
+            for row in csv.DictReader(f):
+                events.append({
+                    "id": int(row["event_id"]),
+                    "crop_start": int(row["crop_start"]),
+                    "crop_end": int(row["crop_end"]),
+                })
+        print(f"Loaded {len(events)} events from {EVENT_GROUPS_CSV.name}")
+    else:
+        # Fallback: scan event crop files
+        paths = sorted(EVENT_FOLDER.glob("*.tif"))
+        if not paths:
+            raise FileNotFoundError("No event_groups.csv and no event crops found.")
+        for i, p in enumerate(paths):
+            m = re.search(r"(\d{4})", p.stem)
+            eid = int(m.group(1)) if m else i
+            events.append({"id": eid, "path": p})
+        print(f"Fallback: {len(events)} event crop files")
+
     print(f"Output: {OUT_FOLDER}")
-    print(f"Found {len(paths)} crops.")
-    print(f"TOP_Z_PLANES={TOP_Z_PLANES}, MIP_SMOOTH_SIGMA={MIP_SMOOTH_SIGMA}, TOP_K={TOP_K}")
+    print(f"TOP_K={TOP_K}, MIN_SEP={MIN_SEP}")
+    if skip_offset > 0:
+        print(f"Frame offset: +{skip_offset} (M1 skipped {M1_SKIP_SECONDS}s)")
 
-    for p in paths:
-        stem = p.stem
-        eg_id = extract_event_group_id(stem)
+    # --- Process each event ---
+    for ev in events:
+        eid = ev["id"]
+        eg_id = f"event_group_{eid:04d}"
 
-        crop = tifffile.imread(p).astype(np.float32)  # (T,Z,Y,X)
-        if crop.ndim != 4 or crop.shape[0] < 1:
-            print(f"Skip {p.name} (shape {crop.shape})")
-            del crop
+        if "crop_start" in ev and (dff_mip is not None or raw4d is not None):
+            # Use global stacks with offset
+            cs = ev["crop_start"] + skip_offset
+            ce = ev["crop_end"] + skip_offset
+
+            # Score from ΔF/F MIP
+            if dff_mip is not None:
+                ce_s = min(ce, dff_mip.shape[0])
+                if cs >= dff_mip.shape[0]:
+                    continue
+                mip_frames = dff_mip[cs:ce_s]  # (T_crop, Y, X)
+            elif raw4d is not None:
+                ce_s = min(ce, raw4d.shape[0])
+                if cs >= raw4d.shape[0]:
+                    continue
+                # Compute MIP from raw 4D for scoring
+                mip_frames = np.array([mip_z(raw4d[t]) for t in range(cs, ce_s)])
+            else:
+                continue
+
+            T_crop = mip_frames.shape[0]
+        elif "path" in ev:
+            # Fallback: load event crop
+            crop_4d = tifffile.imread(str(ev["path"])).astype(np.float32)
+            if crop_4d.ndim == 3:
+                crop_4d = crop_4d[:, np.newaxis, :, :]
+            mip_frames = np.array([mip_z(crop_4d[t]) for t in range(crop_4d.shape[0])])
+            T_crop = crop_4d.shape[0]
+            cs = 0
+        else:
             continue
 
-        T = crop.shape[0]
+        if T_crop < 1:
+            continue
 
-        # score trace
-        scores = np.zeros(T, dtype=np.float32)
-        for t in range(T):
-            mip = mip_z(crop[t])
-            scores[t] = score_mip(mip)
+        # Temporal baseline subtraction: find quietest frame, subtract from all
+        if SUBTRACT_TEMPORAL_BG and T_crop > 2:
+            # Quick pre-score to find the quietest frame
+            pre_scores = np.array([score_frame(mip_frames[t]) for t in range(T_crop)])
+            quiet_idx = int(np.argmin(pre_scores))
+            quiet_frame = mip_frames[quiet_idx].copy()
+            # Subtract scaled quiet frame from all MIPs
+            mip_frames_sub = mip_frames - TEMPORAL_BG_SCALE * quiet_frame[np.newaxis]
+            mip_frames_sub[mip_frames_sub < 0] = 0
+            # Score on subtracted frames
+            scores = np.array([score_frame(mip_frames_sub[t]) for t in range(T_crop)], dtype=np.float32)
+        else:
+            mip_frames_sub = mip_frames
+            scores = np.array([score_frame(mip_frames[t]) for t in range(T_crop)], dtype=np.float32)
 
-        peak_local = int(np.argmax(scores))
-
-        # legacy peak tag behavior
-        peak_tag = extract_peak_tag_from_name(stem)
-        if peak_tag is None:
-            peak_tag = peak_local
-
-        # candidate window around peak
-        w0 = max(peak_local - PEAK_HALF_WINDOW, 0)
-        w1 = min(peak_local + PEAK_HALF_WINDOW, T - 1)
-        window = np.arange(w0, w1 + 1, dtype=int)
-
-        chosen = select_topk_with_spacing(window, scores, TOP_K, MIN_SEP)
-        # save in rank order (best first)
+        # Select top-K
+        chosen = select_topk_with_spacing(T_crop, scores, TOP_K, MIN_SEP)
         chosen = sorted(chosen, key=lambda t: float(scores[t]), reverse=True)
 
-        for rank, t_local in enumerate(chosen, start=1):
-            vol = crop[t_local]  # (Z,Y,X)
-            mip = mip_z(vol)
+        # Filter out noisy frames (score too low relative to best)
+        if chosen:
+            best_score = scores[chosen[0]]
+            if best_score > 0:
+                before = len(chosen)
+                chosen = [t for t in chosen if scores[t] >= MIN_SCORE_RATIO * best_score]
+                if len(chosen) < before:
+                    print(f"    Filtered {before - len(chosen)} noisy frames "
+                          f"(threshold={MIN_SCORE_RATIO*best_score:.2f}, best={best_score:.2f})")
 
-            out3d = OUT_FOLDER / f"bestframe_{eg_id}_peak{peak_tag}_t{t_local:05d}_rank{rank:02d}_3d.tif"
-            outpng = OUT_FOLDER / f"bestframe_{eg_id}_peak{peak_tag}_t{t_local:05d}_rank{rank:02d}_mip.png"
+        peak_local = int(np.argmax(scores))
+        global_peak = cs + peak_local
+
+        for rank, t_local in enumerate(chosen, start=1):
+            global_frame = cs + t_local
+            title = f"{eg_id} | frame {global_frame} ({global_frame/FS_HZ:.1f}s)"
+
+            # Get 3D volume from raw 4D
+            if raw4d is not None and global_frame < raw4d.shape[0]:
+                vol = raw4d[global_frame]  # (Z, Y, X)
+            elif "path" in ev:
+                vol = crop_4d[t_local]
+            else:
+                vol = mip_frames[t_local][np.newaxis]  # (1, Y, X) fallback
+
+            mip = mip_z(vol) if vol.ndim == 3 and vol.shape[0] > 1 else vol.squeeze()
+
+            # For PNG, show the subtracted MIP if available (reveals dendrites better)
+            if SUBTRACT_TEMPORAL_BG and T_crop > 2:
+                mip_display = mip_frames_sub[t_local]
+            else:
+                mip_display = mip
+
+            out3d = OUT_FOLDER / f"bestframe_{eg_id}_peak{global_peak}_t{t_local:05d}_rank{rank:02d}_3d.tif"
+            outpng = OUT_FOLDER / f"bestframe_{eg_id}_peak{global_peak}_t{t_local:05d}_rank{rank:02d}_mip.png"
 
             tifffile.imwrite(out3d, vol.astype(np.float32), photometric="minisblack")
-            save_mip_png(outpng, mip)
+            save_mip_png(outpng, mip_display, title=title)
 
-        del crop
-        gc.collect()
+        print(f"  {eg_id}: T={T_crop}, peak=frame {global_peak}, saved {len(chosen)}")
 
+    del dff_mip, raw4d
+    gc.collect()
     print("Done ✅")
 
 

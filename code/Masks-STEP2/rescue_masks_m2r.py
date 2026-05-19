@@ -31,7 +31,7 @@ from skimage.draw import line as draw_line
 # ===== CONFIG =====
 DATE = "2026-04-16"
 MOUSE = "rbp4_132_phpeb"
-RUN = "run7"
+RUN = "run1"
 
 VOXEL_SIZE = (3.9, 1.0, 1.2)  # Z, Y, X µm
 VOXEL_VOL = float(np.prod(VOXEL_SIZE))
@@ -39,13 +39,15 @@ VOXEL_VOL = float(np.prod(VOXEL_SIZE))
 # Event crops to rescue from (iterate one by one)
 EVENT_FILES = [
     "event_group_0000.tif",
-    "event_group_0003.tif",
-    "event_group_0004.tif",
+    "event_group_0002.tif",
+    "event_group_0005.tif",
+    "event_group_0006.tif",
+    "event_group_0007.tif",
     "event_group_0008.tif",
-    "event_group_0015.tif",
-    "event_group_0017.tif",
-    "event_group_0020.tif",
-    "event_group_0021.tif",
+    "event_group_0009.tif",
+    "event_group_0013.tif",
+    "event_group_0018.tif",
+    "event_group_0027.tif",
 ]
 
 # Seed line width (pixels around each drawn line)
@@ -63,6 +65,14 @@ MIN_VOL = 2000.0  # µm³
 BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/"
             "apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
 EVENT_CROPS = BASE / "preprocessed" / "event_crops"
+EVENT_GROUPS_CSV = BASE / "preprocessed" / "event_groups.csv"
+
+# Raw 4D stack (for better detection)
+RAW_4D_PATH = BASE / "raw" / f"runB_{RUN}_{MOUSE}-reslice-bin.tif"
+# ΔF/F MIP (for display)
+DFF_MIP_PATH = BASE / "raw" / f"runB_{RUN}_{MOUSE}-reslice-bin-dff.tif"
+M1_SKIP_SECONDS = 12.0
+FS_HZ = 5.0
 
 # Try guided output first, fall back to standard
 OUT_LABELS = BASE / "labelmaps_guided"
@@ -203,25 +213,74 @@ def main():
         state["masks"] = []
 
         print(f"\n=== Event {idx+1}/{len(events)}: {ef} ===")
-        crop = tifffile.imread(str(EVENT_CROPS / ef)).astype(np.float32)
+
+        # Get frame range for this event
+        skip_offset = int(M1_SKIP_SECONDS * FS_HZ)
+        eg_num = int(ef.replace("event_group_", "").replace(".tif", ""))
+        cs, ce = 0, 0
+        if EVENT_GROUPS_CSV.exists():
+            import csv as _csv
+            with open(EVENT_GROUPS_CSV) as f:
+                for row in _csv.DictReader(f):
+                    if int(row["event_id"]) == eg_num:
+                        cs = int(row["crop_start"]) + skip_offset
+                        ce = int(row["crop_end"]) + skip_offset
+                        break
+
+        # Load raw 4D for this event's frames (for detection)
+        if RAW_4D_PATH.exists() and ce > cs:
+            print(f"  Loading raw 4D frames {cs}–{ce}...")
+            raw_full = tifffile.imread(str(RAW_4D_PATH)).astype(np.float32)
+            if raw_full.ndim == 3:
+                raw_full = raw_full[:, np.newaxis, :, :]
+            crop = raw_full[cs:min(ce, raw_full.shape[0])]
+            del raw_full
+        else:
+            crop = tifffile.imread(str(EVENT_CROPS / ef)).astype(np.float32)
+
         T, Z, Y, X = crop.shape
         state["crop"] = crop
         state["T"], state["Z"], state["Y"], state["X"] = T, Z, Y, X
         print(f"  Shape: T={T}, Z={Z}, Y={Y}, X={X}")
 
-        # Temporal max MIP
-        tmax_mip = crop.max(axis=0).max(axis=0)
+        # Background: use ΔF/F MIP if available (sharp contrast)
+        if DFF_MIP_PATH.exists() and ce > cs:
+            dff_mip = tifffile.imread(str(DFF_MIP_PATH)).astype(np.float32)
+            if dff_mip.ndim == 4:
+                dff_mip = dff_mip.max(axis=1)
+            # Get event range MIPs and subtract quietest
+            event_mips = dff_mip[cs:min(ce, dff_mip.shape[0])]
+            if event_mips.shape[0] > 2:
+                frame_means = event_mips.mean(axis=(1, 2))
+                quiet_idx = int(np.argmin(frame_means))
+                event_mips_sub = event_mips - 0.8 * event_mips[quiet_idx:quiet_idx+1]
+                event_mips_sub[event_mips_sub < 0] = 0
+                tmax_mip = event_mips_sub.max(axis=0)
+            else:
+                tmax_mip = event_mips.max(axis=0)
+            del dff_mip, event_mips
+        else:
+            tmax_mip = crop.max(axis=0).max(axis=0)
 
         # Existing masks from this event
         existing_masks, existing_names = load_existing_masks_for_event(ef)
         print(f"  Existing masks: {len(existing_masks)}")
 
-        # Enhance
+        # Enhance (with temporal bg subtraction)
         print("  Enhancing...")
-        state["enh"] = enhance_crop(crop)
+        if T > 2:
+            frame_means = crop.mean(axis=(1, 2, 3))
+            quiet_idx = int(np.argmin(frame_means))
+            crop_sub = crop - 0.8 * crop[quiet_idx:quiet_idx+1]
+            crop_sub[crop_sub < 0] = 0
+            state["enh"] = enhance_crop(crop_sub)
+            del crop_sub
+        else:
+            state["enh"] = enhance_crop(crop)
 
         # Background MIP
-        lo, hi = np.percentile(tmax_mip, 2), np.percentile(tmax_mip, 99.5)
+        lo, hi = np.percentile(tmax_mip, 1), np.percentile(tmax_mip, 99.7)
+        print(f"  Background MIP: shape={tmax_mip.shape}, range=[{tmax_mip.min():.3f}, {tmax_mip.max():.3f}], contrast=[{lo:.3f}, {hi:.3f}]")
         v.add_image(tmax_mip, name="event MIP", colormap="gray",
                     contrast_limits=(lo, hi))
 

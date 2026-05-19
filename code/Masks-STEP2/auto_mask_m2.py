@@ -38,7 +38,7 @@ from tqdm import tqdm
 # ================== CONFIG ==================
 DATE = "2026-04-16"
 MOUSE = "rbp4_132_phpeb"
-RUN = "run7"
+RUN = "run1"
 
 BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
 EVENT_FOLDER = BASE / "preprocessed" / "event_crops"
@@ -83,13 +83,22 @@ GROW_DILATION_ITERS = 3            # Dilation iterations
 # "off"      = ignore M1.5, use event crops only (original auto_mask behavior)
 # "guide"    = union bestframe seeds with auto_mask candidates
 # "primary"  = detect directly from M1.5 best frames (skip auto_mask enhancement)
-BESTFRAME_MODE = "guide"         # "off", "guide", or "primary"
+BESTFRAME_MODE = "primary"         # "off", "guide", or "primary"
 BESTFRAMES_FOLDER = BASE / "preprocessed" / "best_frames"
 BESTFRAME_GLOB = "bestframe_*_rank??_3d.tif"
-BESTFRAME_INTENSITY_PCT = 97.0     # Percentile threshold on best frames
+BESTFRAME_INTENSITY_PCT = 94.0     # Percentile threshold on best frames
 
 MAX_FRAME_GAP = 1
 MIN_EVENT_LENGTH = 1               # allow even very brief events
+
+# ---- MinIP detection (dark shadow masks from moving trunks) ----
+USE_MINIP = True                   # detect dark outlines via temporal min projection
+MINIP_PERCENTILE = 2.0             # threshold: voxels below this percentile of minIP
+MINIP_MIN_VOL = 5000.0             # minimum volume (µm³) for minIP masks
+
+# ---- Temporal baseline subtraction (removes static background) ----
+SUBTRACT_TEMPORAL_BG = True        # subtract quietest frame from event crop before detection
+TEMPORAL_BG_SCALE = 0.8            # scale factor (< 1.0 catches dimmer dendrites)
 
 # ---- Volume gates (μm³) ----
 MIN_VOL = 6000.0                    # keep small dendrites
@@ -107,7 +116,7 @@ SLICE_CLOSE_K = 5                  # per-slice close
 SLICE_MIN_PIX = 7                 # min 2D pixels per slice before 3D CC
 
 # ---- Deduplication ----
-DUPLICATE_DICE = 0.60
+DUPLICATE_DICE = 0.70
 MAX_DENDRITES_TOTAL = 255
 
 # ================== HELPERS ==================
@@ -301,7 +310,16 @@ def main():
         y_cut = int(Y_IGNORE_TOP_FRAC * Y)
         st_grow = generate_binary_structure(3, 2) if DO_INTENSITY_GROW else None
 
-        # ===== 0) Build dendrite-enhanced stack for detection =====
+        # ===== 0) Temporal baseline subtraction =====
+        if SUBTRACT_TEMPORAL_BG and T > 2:
+            # Find quietest frame (lowest mean intensity)
+            frame_means = stack.mean(axis=(1, 2, 3))
+            quiet_idx = int(np.argmin(frame_means))
+            quiet_frame = stack[quiet_idx].copy()
+            stack = stack - TEMPORAL_BG_SCALE * quiet_frame[np.newaxis]
+            stack[stack < 0] = 0
+
+        # ===== 1) Build dendrite-enhanced stack for detection =====
         det_stack = enhance_for_detection(stack)          # (T,Z,Y,X)
 
         # ===== 1) Temporal MIP mode OR per-frame mode =====
@@ -535,6 +553,62 @@ def main():
         del stack, det_stack, binary
         gc.collect()
 
+    # ====== MINIP DETECTION (dark shadow masks) ======
+    if USE_MINIP:
+        print("\n--- MinIP detection (dark outlines) ---")
+        minip_count = 0
+        for path in tqdm(event_paths, desc="  minIP scan"):
+            stack = tifffile.imread(str(path)).astype(np.float32)
+            if stack.ndim != 4 or stack.shape[0] < 3:
+                del stack; continue
+            T, Z, Y, X = stack.shape
+
+            # Temporal minimum projection → (Z, Y, X)
+            min_proj = stack.min(axis=0)
+
+            # Threshold: voxels below the Nth percentile are "dark shadows"
+            thr = np.percentile(min_proj, MINIP_PERCENTILE)
+            dark_mask = (min_proj < thr).astype(np.uint8)
+
+            # Ignore top Y band (surface)
+            y_cut = int(Y * Y_IGNORE_TOP_FRAC)
+            if y_cut > 0:
+                dark_mask[:, :y_cut, :] = 0
+
+            # 2D per-slice cleanup
+            se_open = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (SLICE_OPEN_K, SLICE_OPEN_K))
+            for z in range(Z):
+                sl = dark_mask[z]
+                sl = cv2.morphologyEx(sl, cv2.MORPH_OPEN, se_open)
+                dark_mask[z] = sl
+
+            # Remove small 3D objects
+            dark_bool = dark_mask.astype(bool)
+            min_vox = int(MINIP_MIN_VOL / VOXEL_VOL)
+            dark_bool = remove_small_objects(dark_bool, min_size=min_vox)
+
+            if not dark_bool.any():
+                del stack, min_proj, dark_mask, dark_bool; continue
+
+            # 3D connected components
+            lbl3 = label(dark_bool)
+            for r in regionprops(lbl3):
+                vol_um3 = r.area * VOXEL_VOL
+                if vol_um3 < MINIP_MIN_VOL:
+                    continue
+                if MAX_VOL is not None and vol_um3 > MAX_VOL:
+                    continue
+                m = (lbl3 == r.label).astype(np.uint8)
+                # Background from temporal mean (better context for dark masks)
+                bg2d = stack.mean(axis=0).max(axis=0).astype(np.float16)
+                raw_masks.append((m, float(vol_um3), str(path), 0, T, bg2d))
+                minip_count += 1
+
+            del stack, min_proj, dark_mask, dark_bool, lbl3
+            gc.collect()
+
+        print(f"  MinIP: {minip_count} additional masks from dark outlines")
+
     # ====== DEDUP BY 3D DICE ======
     print("Deduplicating masks...")
     unique = []
@@ -597,7 +671,7 @@ def main():
             ax.imshow(bg2d.astype(np.float32), cmap="gray")
             edges = cv2.Canny((mip_mask.astype(np.uint8) * 255), 0, 1) > 0
             ax.imshow(np.ma.masked_where(~edges, edges), cmap="autumn", alpha=0.8)
-            ax.set_title(f"dend_{i:03d} (Z-MIP overlay)")
+            ax.set_title(f"dend_{i:03d} | {src}")
             ax.axis("off")
             fig.tight_layout()
             fig.savefig(OUT_PREV / f"dend_{i:03d}_preview.png", dpi=150)

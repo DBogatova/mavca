@@ -28,7 +28,7 @@ mpl.rcParams['font.family'] = 'CMU Serif'
 # === CONFIGURATION ===
 DATE = "2026-04-16"
 MOUSE = "rbp4_132_phpeb"
-RUN = "run7"
+RUN = "run1"
 
 # Acquisition
 FS_HZ = 5.0  # frames per second
@@ -37,7 +37,7 @@ FS_HZ = 5.0  # frames per second
 SKIP_FIRST_SECONDS = 12.0  # Set to 7.0 to remove first 7 seconds
 
 CROP_RADIUS = 5  # Number of frames to include before/after each event
-START_THRESHOLD = 0.5  # Z-score threshold for event start
+START_THRESHOLD = 0.3  # Z-score threshold for event start
 END_THRESHOLD = -0.5   # Z-score threshold for event end (hysteresis)
 MAX_FRAME_GAP = 2     # Maximum gap between frames to group into same event
 Y_CROP = 3            # Number of pixels to crop from bottom of Y dimension
@@ -244,6 +244,21 @@ def main():
         tifffile.imwrite(EVENT_CROPS_FOLDER / f"event_group_{i:04d}.tif", crop.astype(np.float32))
 
     print(f"Saved {len(event_groups)} grouped event crops to:\n{EVENT_CROPS_FOLDER}")
+
+    # === SAVE EVENT GROUPS MAPPING ===
+    import csv as _csv
+    eg_csv = PREPROCESSED_FOLDER / "event_groups.csv"
+    with open(eg_csv, "w", newline="") as f:
+        w = _csv.writer(f)
+        w.writerow(["event_id", "frame_start", "frame_end", "crop_start", "crop_end",
+                    "duration_frames", "time_start_sec", "time_end_sec"])
+        for i, group in enumerate(event_groups):
+            fs, fe = group[0], group[-1]
+            cs = max(fs - CROP_RADIUS, 0)
+            ce = min(fe + CROP_RADIUS + 1, T)
+            w.writerow([i, fs, fe, cs, ce, fe - fs + 1,
+                        f"{fs/FS_HZ:.2f}", f"{fe/FS_HZ:.2f}"])
+    print(f"Event groups mapping saved to: {eg_csv}")
 
     # === SAVE STACKS ===
     print("Saving processed stacks...")

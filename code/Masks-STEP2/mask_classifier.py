@@ -29,7 +29,7 @@ MODEL_PATH = PROJECT_ROOT / "code" / "Masks-STEP2" / "mask_classifier_model.pkl"
 
 PREDICT_DATE = "2026-04-16"
 PREDICT_MOUSE = "rbp4_132_phpeb"
-PREDICT_RUN = "run1"
+PREDICT_RUN = "run8"
 
 KNOWN_RUNS = [
     ("2025-12-02", "rbp4cre_136_phpeb", "run4", 5.0),
@@ -37,6 +37,8 @@ KNOWN_RUNS = [
     ("2026-03-20", "rbp4cre_139_phpeb", "run3", 5.0),
     ("2026-03-31", "rbp4_132_phpeb", "run7", 5.0),
     ("2026-03-31", "rbp4_132_phpeb", "run8", 5.0),
+    ("2026-04-16", "rbp4_132_phpeb", "run1", 5.0),
+    ("2026-04-16", "rbp4_132_phpeb", "run7", 5.0),
 ]
 
 VOXEL_SIZE = (3.9, 1.0, 1.2)
@@ -124,7 +126,7 @@ def extract_all_temporal_features(mask_paths, mask_names, base, fps):
     else:
         raw_dir = base / "raw"
         if raw_dir.exists():
-            for p in sorted(raw_dir.glob("runA_*.*tif")):
+            for p in sorted(raw_dir.glob("run[AB]_*.*tif")):
                 if "reslice" in p.name.lower():
                     raw_path = p
                     break
@@ -171,11 +173,16 @@ def extract_all_temporal_features(mask_paths, mask_names, base, fps):
         f0_vals.append(frame.mean())
     f0_global = np.percentile(f0_vals, 10)
 
-    # Single pass: extract all traces (every 3rd frame for speed)
+    # Single pass: extract all traces + global signal (every 3rd frame for speed)
     traces = {r["name"]: [] for r in rois}
+    global_trace = []
     for t in range(skip, T_raw, 3):
         frame = np.asarray(store[t]).astype(np.float32).ravel()
         if frame.size != n_vox:
+            continue
+        dff = (frame - f0_global) / (f0_global + 1e-6)
+        global_trace.append(dff.mean())
+        for r in rois:
             continue
         dff = (frame - f0_global) / (f0_global + 1e-6)
         for r in rois:
@@ -187,6 +194,9 @@ def extract_all_temporal_features(mask_paths, mask_names, base, fps):
             traces[r["name"]].append(cv - sv)
 
     del store
+
+    # Global trace for correlation
+    global_arr = np.array(global_trace, dtype=np.float32)
 
     # Compute features from traces
     from scipy.stats import kurtosis as sp_kurtosis
@@ -213,6 +223,13 @@ def extract_all_temporal_features(mask_paths, mask_names, base, fps):
         frac_negative = float((tr_s < -0.5).mean())
         ac1 = float(np.corrcoef(tr_s[:-1], tr_s[1:])[0, 1]) if len(tr_s) > 2 else 0.0
 
+        # Correlation with global signal (high = neuropil/artifact, low = unique dendrite)
+        if len(global_arr) == len(tr_s):
+            corr_global = float(np.corrcoef(tr_s, global_arr[:len(tr_s)] * 100)[0, 1])
+        else:
+            n = min(len(tr_s), len(global_arr))
+            corr_global = float(np.corrcoef(tr_s[:n], global_arr[:n] * 100)[0, 1])
+
         result[name] = {
             "peak_dff": peak_dff,
             "p5_dff": p5,
@@ -223,6 +240,7 @@ def extract_all_temporal_features(mask_paths, mask_names, base, fps):
             "n_transients": n_transients,
             "frac_negative": frac_negative,
             "autocorr_lag1": ac1,
+            "corr_global": corr_global,
         }
 
     print(f"    Got temporal features for {sum(1 for v in result.values() if v)} / {len(result)} masks")
@@ -316,6 +334,9 @@ def collect_training_data():
 def train_model():
     from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
     from sklearn.model_selection import cross_val_score, StratifiedKFold, LeaveOneGroupOut
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.pipeline import Pipeline
 
     print("=== Collecting training data ===")
     features, labels, run_ids = collect_training_data()

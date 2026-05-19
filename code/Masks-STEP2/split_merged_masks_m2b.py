@@ -7,6 +7,7 @@ Runs after auto_mask_m2.py.  Two modes:
   python split_merged_masks_m2b.py            # auto-watershed batch mode
   python split_merged_masks_m2b.py --cut 3    # Napari polyline-cut for dend 3
   python split_merged_masks_m2b.py --cut all  # Napari polyline-cut, iterate all
+   python split_merged_masks_m2b.py --check   # Napari final passthrough, remove chunks if needed
 
 Auto-watershed pipeline per mask:
   1) Load 3D binary mask
@@ -44,7 +45,7 @@ from skimage.measure import regionprops
 # ================== CONFIG ==================
 DATE = "2026-04-16"
 MOUSE = "rbp4_132_phpeb"
-RUN = "run7"
+RUN = "run1"
 
 BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
 
@@ -716,13 +717,118 @@ def clean_masks():
     print(f"[✓] Cleanup complete. Manifest updated: {MANIFEST}")
 
 
+def check_split_masks():
+    """Review split masks one by one in Napari. Keep or delete each."""
+    import napari
+    from magicgui import magicgui
+
+    if not MANIFEST.exists():
+        print(f"[error] Split manifest not found: {MANIFEST}")
+        return
+
+    with open(MANIFEST, "r") as f:
+        rows = list(csv.DictReader(f))
+
+    print(f"Checking {len(rows)} split masks...")
+
+    kept = []
+    deleted_ids = set()
+    idx = [0]
+    viewer = napari.Viewer(title="M2b — Check Split Masks")
+
+    def _load(i):
+        viewer.layers.clear()
+        row = rows[i]
+        did = row["dend_id"]
+        mask_path = Path(row["labelmap_path"])
+        bg_path = Path(row["background_path"])
+
+        mask3d = tifffile.imread(mask_path).astype(np.uint8) if mask_path.exists() else None
+        if mask3d is None:
+            print(f"  dend_{did}: mask not found, skipping")
+            return
+
+        Z, Y, X = mask3d.shape
+        bg2d = tifffile.imread(bg_path).astype(np.float32) if bg_path.exists() else np.zeros((Y, X), np.float32)
+
+        # Show background
+        lo, hi = np.percentile(bg2d, 2), np.percentile(bg2d, 99.5)
+        viewer.add_image(bg2d, name="background", colormap="gray",
+                         contrast_limits=(lo, hi))
+
+        # Show mask MIP
+        mip = mask3d.max(axis=0).astype(np.float32)
+        viewer.add_image(mip, name=f"dend_{did}", colormap="green",
+                         opacity=0.5, blending="additive")
+
+        vol = float(row.get("volume_um3", 0))
+        viewer.title = f"Check — dend_{did}  ({i+1}/{len(rows)})  vol={vol:.0f}µm³"
+
+    def _advance():
+        idx[0] += 1
+        if idx[0] < len(rows):
+            _load(idx[0])
+        else:
+            _finish()
+
+    def _finish():
+        # Remove deleted masks from disk and rewrite manifest
+        for did in deleted_ids:
+            for row in rows:
+                if row["dend_id"] == did:
+                    p = Path(row["labelmap_path"])
+                    if p.exists(): p.unlink()
+                    bp = Path(row["background_path"])
+                    if bp.exists(): bp.unlink()
+                    break
+
+        kept_rows = [r for r in rows if r["dend_id"] not in deleted_ids]
+        with open(MANIFEST, "w", newline="") as f:
+            if kept_rows:
+                writer = csv.DictWriter(f, fieldnames=kept_rows[0].keys())
+                writer.writeheader()
+                writer.writerows(kept_rows)
+        print(f"\n[✓] Done — kept {len(kept_rows)}, deleted {len(deleted_ids)}")
+        from napari.utils.notifications import show_info
+        show_info(f"Kept {len(kept_rows)}, deleted {len(deleted_ids)}")
+
+    @viewer.bind_key("k")
+    def _keep(v):
+        print(f"  ✅ Kept dend_{rows[idx[0]]['dend_id']}")
+        _advance()
+
+    @viewer.bind_key("d")
+    def _delete(v):
+        did = rows[idx[0]]["dend_id"]
+        deleted_ids.add(did)
+        print(f"  ❌ Deleted dend_{did}")
+        _advance()
+
+    @viewer.bind_key("Right")
+    def _next(v):
+        _advance()
+
+    @viewer.bind_key("Left")
+    def _prev(v):
+        if idx[0] > 0:
+            idx[0] -= 1
+            _load(idx[0])
+
+    print("\nControls: k=keep, d=delete, Left/Right=navigate")
+    _load(0)
+    napari.run()
+
+
 if __name__ == "__main__":
     # --cut N   → interactive polyline-cut for dend N
     # --cut all → interactive polyline-cut for all masks
     # --clean   → batch cleanup pass on split output
+    # --check   → review split masks, delete unwanted chunks
     # (no args) → auto-watershed batch mode
     if "--clean" in sys.argv:
         clean_masks()
+    elif "--check" in sys.argv:
+        check_split_masks()
     elif "--cut" in sys.argv:
         idx = sys.argv.index("--cut")
         arg = sys.argv[idx + 1] if idx + 1 < len(sys.argv) else "all"

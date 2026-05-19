@@ -26,11 +26,11 @@ RUN = "run7"
 # Concatenation: set runs + run nums, or leave empty for single run
 CONCAT_RUNS = []
 RUN_NUMS = []
-MASK_RUN = "run7"
+MASK_RUN = "run1"
 
 FRAME_RATE = 5.0
-CROP_START_SECONDS = 13.0
-SKIP_FIRST_SECONDS = 13.0
+CROP_START_SECONDS = 12.0
+SKIP_FIRST_SECONDS = 12.0
 DFF_THRESHOLD = 0.3
 SHOW_CLUSTER_BANDS = False
 
@@ -213,6 +213,14 @@ def main():
     time_s = time_s[clip]
     traces = traces[clip]
     T, N = traces.shape
+
+    # Also clip behavior to trace duration
+    trace_dur = time_s[-1]
+    for key in ["pupil", "whisker", "accel", "ca"]:
+        if key in beh:
+            t, d = beh[key]
+            mask = t <= trace_dur
+            beh[key] = (t[mask], d[mask])
 
     # Build panels: spikes, accel, global Ca, pupil, whisker
     n_panels = 1

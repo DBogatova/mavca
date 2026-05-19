@@ -7,10 +7,10 @@ import gc
 # === CONFIGURATION ===
 DATE = "2026-04-16"
 MOUSE = "rbp4_132_phpeb"
-RUN = "run7"
+RUN = "run1"
 Y_CROP = 3
 FRAME_RATE = 5  # Hz
-SKIP_FIRST_SECONDS = 13.0  # drop first N seconds (laser warmup)
+SKIP_FIRST_SECONDS = 12.0  # drop first N seconds (laser warmup)
 CHUNK_DURATION = 120  # seconds per chunk
 
 # Cell selection options

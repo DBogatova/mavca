@@ -27,7 +27,7 @@ import csv
 # ======= CONFIG =======
 DATE = "2026-04-16"
 MOUSE = "rbp4_132_phpeb"
-RUN = "run7"
+RUN = "run1"
 
 VOXEL_SIZE = (3.9, 1.0, 1.2)  # (Z,Y,X) μm
 NEIGHBOR_K_DEFAULT = 3
@@ -40,13 +40,16 @@ BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2
 LABELMAP_FOLDER = BASE / "labelmaps_split"
 BGS_FOLDER      = BASE / "labelmap_backgrounds_split"
 
-# 3D background: per-event temporal max from event crops
+# 3D background: temporal max from raw 4D stack (shows all dendrites)
+RAW_STACK_PATH = BASE / "raw" / f"runB_{RUN}_{MOUSE}-reslice-bin.tif"
+M1_SKIP_SECONDS = 12.0  # must match find_events_m1.py SKIP_FIRST_SECONDS
+FS_HZ = 5.0
 EVENT_CROPS_FOLDER = BASE / "preprocessed" / "event_crops"
 # Try split manifest first, fall back to M2 manifest
 MANIFEST_PATH = BASE / "masks_manifest_split.csv"
 if not MANIFEST_PATH.exists():
     MANIFEST_PATH = BASE / "masks_manifest.csv"
-USE_3D_BG       = True   # False = use 2D MIP backgrounds as before
+USE_3D_BG       = True   # False = use 2D MIP backgrounds 
 
 OUTPUT_FOLDER   = BASE / "labelmaps_curated_dynamic"
 OUTPUT_FOLDER.mkdir(parents=True, exist_ok=True)
@@ -83,13 +86,13 @@ def load_data():
     bg3d_map = {}  # name → (Z,Y,X) float32
     if USE_3D_BG and MANIFEST_PATH.exists() and EVENT_CROPS_FOLDER.exists():
         with open(MANIFEST_PATH, "r") as f:
-            rows = list(csv.DictReader(f))
+            mrows = list(csv.DictReader(f))
         # Map dend name → source event file
         name_to_event = {}
-        for row in rows:
-            dend_id = int(row["dend_id"])
+        for r in mrows:
+            dend_id = int(r["dend_id"])
             name = f"dend_{dend_id:03d}"
-            name_to_event[name] = row["source_event_file"]
+            name_to_event[name] = r["source_event_file"]
         # Load each unique event crop once, compute temporal max
         event_cache = {}  # event_file → (Z,Y,X) float32
         for name in names:
@@ -107,11 +110,26 @@ def load_data():
             if ev_file in event_cache:
                 bg3d_map[name] = event_cache[ev_file]
         print(f"  3D backgrounds: {len(bg3d_map)} masks from {len(event_cache)} events")
-        # Print mapping for verification
-        for name in names:
-            ev = name_to_event.get(name, "???")
-            has_bg = "✓" if name in bg3d_map else "✗"
-            print(f"    {has_bg} {name} → {ev}")
+
+    # Global temporal max of raw 4D stack (all dendrites that ever fired)
+    bg3d_global_max = None
+    if USE_3D_BG and RAW_STACK_PATH.exists():
+        print(f"  Computing global temporal max from {RAW_STACK_PATH.name}...")
+        tf = tifffile.TiffFile(str(RAW_STACK_PATH))
+        T_raw = tf.series[0].shape[0]
+        chunk_t = 50
+        tmax = None
+        for t0 in range(0, T_raw, chunk_t):
+            t1 = min(t0 + chunk_t, T_raw)
+            chunk = tf.series[0].asarray()[t0:t1].astype(np.float32)
+            if tmax is None:
+                tmax = chunk.max(axis=0)
+            else:
+                np.maximum(tmax, chunk.max(axis=0), out=tmax)
+            del chunk
+        tf.close()
+        bg3d_global_max = tmax
+        print(f"  Global max: {bg3d_global_max.shape}")
 
     # centroids in μm for NN search
     cents = []
@@ -125,7 +143,7 @@ def load_data():
             cents.append(np.array([cz*vz, cy*vy, cx*vx], dtype=float))
     cents = np.vstack(cents)
 
-    return masks, names, bg_map, cents, bg3d_map
+    return masks, names, bg_map, cents, bg3d_map, bg3d_global_max
 
 def broadcast_bg_2d_to_3d(bg2d, Z):
     return np.repeat(bg2d[None, ...], Z, axis=0)  # (Z,Y,X)
@@ -136,7 +154,7 @@ def mask_union(a, b):
 def mask_subtract(a, b):
     return (a.astype(bool) & ~b.astype(bool)).astype(np.uint8)
 
-def save_curated(masks, names, deleted, edited):
+def save_curated(masks, names, deleted, edited, visited):
     # Clear old files from previous runs
     for old in OUTPUT_FOLDER.glob("dend_*_labelmap.tif"):
         old.unlink()
@@ -144,6 +162,13 @@ def save_curated(masks, names, deleted, edited):
     count = 0
     rows = []
     for i, name in enumerate(names):
+        if i not in visited and i not in deleted:
+            # Not yet reviewed — skip from log, but still save mask
+            m = edited.get(i, masks[i])
+            out = OUTPUT_FOLDER / f"dend_{count:03d}_labelmap.tif"
+            tifffile.imwrite(out, (m * (count + 1)).astype(np.uint16))
+            count += 1
+            continue
         if i in deleted:
             rows.append({"name": name, "kept": 0, "out": ""})
             continue
@@ -158,20 +183,54 @@ def save_curated(masks, names, deleted, edited):
         w.writeheader(); w.writerows(rows)
 
     print(f"✅ Saved {count} masks to {OUTPUT_FOLDER}")
-    print(f"📝 Log: {LOG_PATH}")
+    print(f"📝 Log: {LOG_PATH} ({len(rows)} reviewed)")
 
 # ======= MAIN =======
 def main():
-    masks, names, bg_map, cents, bg3d_map = load_data()
+    masks, names, bg_map, cents, bg3d_map, bg3d_global_max = load_data()
     N = len(masks)
     print(f"Loaded {N} masks.")
 
-    # State
-    idx = [0]  # current index (mutable)
+    # Resume: check curation log for already-processed masks
     deleted = set()
-    edited  = {}
+    edited = {}
+    start_idx = 0
+
+    if LOG_PATH.exists():
+        with open(LOG_PATH, "r") as f:
+            rows = list(csv.DictReader(f))
+        processed_names = set()
+        for r in rows:
+            processed_names.add(r["name"])
+            if int(r["kept"]) == 0:
+                # Find index of this name
+                if r["name"] in names:
+                    deleted.add(names.index(r["name"]))
+
+        # Find first unprocessed mask
+        for i, name in enumerate(names):
+            if name not in processed_names:
+                start_idx = i
+                break
+        else:
+            start_idx = N  # all processed
+
+        if start_idx > 0:
+            print(f"📂 Resuming from mask {start_idx}/{N} ({names[start_idx] if start_idx < N else 'done'})")
+            print(f"   ({len(processed_names)} already processed, {len(deleted)} deleted)")
+
+    if start_idx >= N:
+        print("All masks already processed. Delete curation_log.csv to start over.")
+        return
+
+    # State
+    idx = [start_idx]
+    visited = set(i for i, name in enumerate(names) if name in 
+                  (set() if not LOG_PATH.exists() else 
+                   {r["name"] for r in csv.DictReader(open(LOG_PATH))}))
     neighbor_k = [NEIGHBOR_K_DEFAULT]
     bg_on = [True]
+    bg_mode = ["event"]  # "event" (per-event max from crops) or "global" (full stack max)
 
     v = napari.Viewer(ndisplay=3)
 
@@ -191,9 +250,14 @@ def main():
 
         # --- background ---
         if bg_on[0]:
-            bg3d = bg3d_map.get(names[i])
+            if bg_mode[0] == "global" and bg3d_global_max is not None:
+                Z_bg = min(bg3d_global_max.shape[0], Z)
+                Y_bg = min(bg3d_global_max.shape[1], Y)
+                X_bg = min(bg3d_global_max.shape[2], X)
+                bg3d = bg3d_global_max[:Z_bg, :Y_bg, :X_bg]
+            else:
+                bg3d = bg3d_map.get(names[i])
             if bg3d is not None:
-                # Per-event 3D background (temporal max of event crop)
                 lo = float(np.percentile(bg3d, 2.0))
                 hi = float(np.percentile(bg3d, 99.5))
                 if "bg" in v.layers:
@@ -260,7 +324,7 @@ def main():
 
     def _autosave():
         """Save after every action so no work is lost."""
-        save_curated(masks, names, deleted, edited)
+        save_curated(masks, names, deleted, edited, visited)
 
     # --- Navigation ---
     @v.bind_key("Right")
@@ -287,6 +351,13 @@ def main():
         bg_on[0] = not bg_on[0]
         refresh_scene()
 
+    # Toggle background mode (per-event vs global max)
+    @v.bind_key("n")
+    def _toggle_bg_mode(viewer):
+        bg_mode[0] = "global" if bg_mode[0] == "event" else "event"
+        print(f"🔄 Background: {bg_mode[0]}")
+        refresh_scene()
+
     # Neighbor count up/down
     @v.bind_key("u")
     def _more_neighbors(viewer):
@@ -301,6 +372,7 @@ def main():
     # Delete / Keep
     @v.bind_key("d")
     def _delete(viewer):
+        visited.add(idx[0])
         deleted.add(idx[0])
         print(f"❌ Deleted: {names[idx[0]]}")
         _autosave()
@@ -308,6 +380,7 @@ def main():
 
     @v.bind_key("k")
     def _keep(viewer):
+        visited.add(idx[0])
         print(f"✅ Kept: {names[idx[0]]}")
         _autosave()
         _next(viewer)
@@ -392,11 +465,11 @@ def main():
     # Save all
     @v.bind_key("Control-S")
     def _save(viewer):
-        save_curated(masks, names, deleted, edited)
+        save_curated(masks, names, deleted, edited, visited)
 
     # Instructions
     print("\n=== INSTRUCTIONS ===")
-    print("Left/Right: navigate  |  b: bg on/off  |  u/j: +/- neighbors")
+    print("Left/Right: navigate  |  b: bg on/off  |  n: event/global bg  |  u/j: +/- neighbors")
     print("m: merge PAINT  |  x: subtract PAINT")
     print("q/w/r: MERGE neighbor 1/2/3 → current   |   a/s/f: SUBTRACT neighbor 1/2/3")
     print("d: delete  |  k: keep next")
@@ -405,5 +478,68 @@ def main():
     refresh_scene()
     napari.run()
 
+
+def check_curated():
+    """Post-curation check: disconnected components + duplicate masks."""
+    import sys
+
+    mask_paths = sorted(OUTPUT_FOLDER.glob("dend_*_labelmap.tif"))
+    if not mask_paths:
+        print("No curated masks found.")
+        return
+
+    print(f"=== Post-curation check: {len(mask_paths)} masks ===\n")
+
+    masks = []
+    names_check = []
+    for p in mask_paths:
+        m = tifffile.imread(p).astype(bool)
+        masks.append(m)
+        names_check.append(p.stem.replace("_labelmap", ""))
+
+    # 1) Disconnected components
+    print("--- Disconnected components ---")
+    n_disconnected = 0
+    for i, (m, name) in enumerate(zip(masks, names_check)):
+        labeled, n = label(m > 0, return_num=True)
+        if n > 1:
+            sizes = [(labeled == lbl).sum() for lbl in range(1, n + 1)]
+            print(f"  ⚠️  {name}: {n} components (sizes: {sorted(sizes, reverse=True)})")
+            n_disconnected += 1
+    if n_disconnected == 0:
+        print("  ✅ All masks are single connected components")
+
+    # 2) Duplicate / highly overlapping masks
+    print("\n--- Duplicate detection (Dice > 0.3) ---")
+    n_duplicates = 0
+    for i in range(len(masks)):
+        for j in range(i + 1, len(masks)):
+            if masks[i].shape != masks[j].shape:
+                continue
+            inter = (masks[i] & masks[j]).sum()
+            if inter == 0:
+                continue
+            dice = 2 * inter / (masks[i].sum() + masks[j].sum())
+            if dice > 0.3:
+                print(f"  ⚠️  {names_check[i]} ↔ {names_check[j]}: Dice={dice:.3f}")
+                n_duplicates += 1
+    if n_duplicates == 0:
+        print("  ✅ No duplicates found")
+
+    # 3) Summary
+    print(f"\n--- Summary ---")
+    print(f"  Total masks: {len(masks)}")
+    print(f"  Disconnected: {n_disconnected}")
+    print(f"  Duplicate pairs: {n_duplicates}")
+
+    if n_duplicates > 0:
+        print("\n  To merge duplicates, use find_dendrite_branches.py or")
+        print("  manually merge in M3 (navigate to one, press 'q' to merge neighbor)")
+
+
 if __name__ == "__main__":
-    main()
+    import sys
+    if "--check" in sys.argv:
+        check_curated()
+    else:
+        main()

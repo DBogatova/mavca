@@ -15,19 +15,19 @@ import numpy as np
 import tifffile
 
 # ===== CONFIG =====
-DATE = "2026-03-31"
+DATE = "2026-04-16"
 MOUSE = "rbp4_132_phpeb"
 RUN = "run7"
 
 Y_CROP = 3  # crop bottom N rows of Y to match masks
-SKIP_FIRST_SECONDS = 0.0  # drop first N seconds
+SKIP_FIRST_SECONDS = 12.0  # drop first N seconds
 FRAME_RATE = 5  # Hz
 CHUNK_T = 50  # frames per chunk for memory efficiency
 
 # ===== PATHS =====
 BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/"
             "apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
-STACK_PATH = BASE / "overlays" / "chunk_01_0000-0545_dff.tif"
+STACK_PATH = BASE / "overlays" / "chunk_01_0000-0535_dff.tif"
 MASK_FOLDER = BASE / "labelmaps_curated_dynamic"
 OUTPUT_PATH = BASE / "overlays" / "static_masked_max_over_time.tif"
 

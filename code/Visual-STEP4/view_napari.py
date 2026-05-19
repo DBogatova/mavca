@@ -11,7 +11,9 @@ import matplotlib.cm as cm
 from pathlib import Path
 
 # ---- Config ----
-STACK_PATH = "/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data/2026-04-16/rbp4_132_phpeb/run7/overlays/chunk_01_0000-0535_dff.tif"
+STACK_PATH = "/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data/2026-04-16/rbp4_132_phpeb/run1/overlays/chunk_01_0000-0540_dff.tif"
+RUN_NAME = "run3"
+FRAME_RATE = 5.0  # Hz
 
 # (T, Z, Y, X): time left as frames; spatial voxels in µm
 VOXEL_SCALE = (1.0, 3.9, 1.0, 1.2)  # T, Z, Y, X
@@ -42,24 +44,24 @@ else:
 
 # ---- Create separate colorbar figure ----
 # Set CMU Serif font
-plt.rcParams['font.family'] = 'CMU Serif'
-plt.rcParams['font.serif'] = ['CMU Serif']
+# plt.rcParams['font.family'] = 'CMU Serif'
+# plt.rcParams['font.serif'] = ['CMU Serif']
 
-fig, ax = plt.subplots(figsize=(2, 6))
-cmap = cm.get_cmap('turbo')
-norm = plt.Normalize(vmin=contrast_min, vmax=contrast_max)
-cb = plt.colorbar(cm.ScalarMappable(norm=norm, cmap=cmap), ax=ax)
-cb.set_label('ΔF/F (% change)', rotation=270, labelpad=20)
-ax.remove()  # Remove the axes, keep only colorbar
-plt.tight_layout()
+# fig, ax = plt.subplots(figsize=(2, 6))
+# cmap = cm.get_cmap('turbo')
+# norm = plt.Normalize(vmin=contrast_min, vmax=contrast_max)
+# cb = plt.colorbar(cm.ScalarMappable(norm=norm, cmap=cmap), ax=ax)
+# cb.set_label('ΔF/F (% change)', rotation=270, labelpad=20)
+# ax.remove()  # Remove the axes, keep only colorbar
+# plt.tight_layout()
 
-# Save as vector formats
-colorbar_path = Path(STACK_PATH).parent / "colorbar_dff"
-fig.savefig(f"{colorbar_path}.svg", format='svg', bbox_inches='tight')
-fig.savefig(f"{colorbar_path}.pdf", format='pdf', bbox_inches='tight')
-print(f"Saved colorbar: {colorbar_path}.svg and {colorbar_path}.pdf")
+# # Save as vector formats
+# colorbar_path = Path(STACK_PATH).parent / "colorbar_dff"
+# fig.savefig(f"{colorbar_path}.svg", format='svg', bbox_inches='tight')
+# fig.savefig(f"{colorbar_path}.pdf", format='pdf', bbox_inches='tight')
+# print(f"Saved colorbar: {colorbar_path}.svg and {colorbar_path}.pdf")
 
-plt.show()
+# plt.show()
 
 # ---- Napari viewer ----
 viewer = napari.Viewer(ndisplay=3)
@@ -67,10 +69,11 @@ layer = viewer.add_image(
     stack,
     name="ΔF/F Branches",
     scale=VOXEL_SCALE,
-    colormap="turbo",
+    colormap="green",
     rendering="attenuated_mip",
     contrast_limits=(contrast_min, contrast_max),
 )
+layer.reset_contrast_limits()  # autoscale once
 
 # ---- 3D Field of View edges ----
 z0, z1 = 0, Z - 1
@@ -124,5 +127,69 @@ print(f"  0.1 = 10% increase (moderate calcium)")
 print(f"  0.5 = 50% increase (strong calcium)")
 print(f"  1.0 = 100% increase (very strong calcium)")
 print(f" -0.1 = 10% decrease (below baseline)")
+
+
+# ---- Export MP4 (3D rendered view from fixed angle, with timer) ----
+# Press Ctrl+E in Napari after positioning the camera to export
+
+T_total = stack.shape[0]
+
+@viewer.bind_key("Control-e")
+def _export_mp4(v):
+    import imageio
+    from PIL import Image, ImageDraw, ImageFont
+
+    print("\nExporting MP4 (3D rendered, fixed angle)...")
+    mp4_path = Path(STACK_PATH).parent / f"{RUN_NAME}_3d.mp4"
+    writer = imageio.get_writer(str(mp4_path), fps=FRAME_RATE, codec='libx264',
+                                 quality=8, pixelformat='yuv420p')
+
+    for frame in range(T_total):
+        viewer.dims.set_current_step(0, frame)
+        viewer.window._qt_window.repaint()
+        import time; time.sleep(0.05)
+        img = viewer.screenshot(canvas_only=True)
+        # Ensure RGB (drop alpha if present)
+        if img.ndim == 3 and img.shape[2] == 4:
+            img = img[:, :, :3]
+
+        # Burn timer text onto frame
+        t_sec = frame / FRAME_RATE
+        label = f"{RUN_NAME}  |  {t_sec:06.3f}s  |  frame {frame}"
+        pil_img = Image.fromarray(img)
+        draw = ImageDraw.Draw(pil_img)
+        try:
+            font = ImageFont.truetype("/System/Library/Fonts/Menlo.ttc", 72)
+        except:
+            font = ImageFont.load_default()
+        # Draw background box for readability
+        bbox = draw.textbbox((15, 15), label, font=font)
+        draw.rectangle([bbox[0]-5, bbox[1]-5, bbox[2]+5, bbox[3]+5],
+                       fill=(0, 0, 0))
+        draw.text((15, 15), label, fill=(255, 255, 255), font=font)
+        img = np.array(pil_img)
+
+        if frame == 0:
+            print(f"  Frame size: {img.shape}, dtype: {img.dtype}")
+
+        writer.append_data(img)
+        if frame % 50 == 0:
+            print(f"  frame {frame}/{T_total}")
+
+    writer.close()
+    print(f"Saved: {mp4_path}")
+
+# ---- Timer overlay ----
+from napari.utils.events import Event
+
+T_total = stack.shape[0]
+
+def _update_title(event=None):
+    frame = viewer.dims.current_step[0]
+    t_sec = frame / FRAME_RATE
+    viewer.title = f"{RUN_NAME}  |  {t_sec:06.3f}s  |  frame {frame}/{T_total}"
+
+viewer.dims.events.current_step.connect(_update_title)
+_update_title()  # initial
 
 napari.run()
