@@ -29,21 +29,20 @@ from scipy.ndimage import gaussian_filter
 # =========================
 # CONFIG
 # =========================
-DATE = "2026-04-16"
+DATE = "2026-05-12"
 MOUSE = "rbp4_132_phpeb"
-RUN = "run1"
+RUN = "run6"
 FS_HZ = 5.0
 
 BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/"
             "apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
 
 # ΔF/F MIP stack (T, Y, X) — used for SCORING (sharp contrast)
-DFF_STACK_PATH = BASE / "raw" / f"runB_{RUN}_{MOUSE}-reslice-bin-dff.tif"
+DFF_STACK_PATH = BASE / "raw" / f"runA_{RUN}_{MOUSE}-reslice-bin-dff.tif"
 # Raw 4D stack (T, Z, Y, X) — used for SAVING 3D best frames
-RAW_4D_PATH = BASE / "raw" / f"runB_{RUN}_{MOUSE}-reslice-bin.tif"
+RAW_4D_PATH = BASE / "raw" / f"runA_{RUN}_{MOUSE}-reslice-bin.tif"
 # How many seconds M1 skipped (event_groups.csv indices are relative to trimmed stack)
-M1_SKIP_SECONDS = 12.0  # set to match find_events_m1.py SKIP_FIRST_SECONDS
-
+M1_SKIP_SECONDS = 14.0  # set to match find_events_m1.py SKIP_FIRST_SECONDS
 # Fallback: event crops from M1
 EVENT_FOLDER = BASE / "preprocessed" / "event_crops"
 EVENT_GROUPS_CSV = BASE / "preprocessed" / "event_groups.csv"

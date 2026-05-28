@@ -43,9 +43,9 @@ from skimage.filters import sato
 from skimage.measure import regionprops
 
 # ================== CONFIG ==================
-DATE = "2026-04-16"
+DATE = "2026-05-12"
 MOUSE = "rbp4_132_phpeb"
-RUN = "run1"
+RUN = "run5"
 
 BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
 

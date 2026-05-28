@@ -77,8 +77,18 @@ def main():
             p = mat['pupil']['pupil_raw'][0][0].flatten()
             pupil = gaussian_filter1d(p, sigma=2)
             t_pup = np.arange(len(pupil)) / 10.0
-            mask = (t_pup >= CROP_START_SECONDS) & (t_pup <= CROP_START_SECONDS + time_s[-1])
-            t_pup, pupil = t_pup[mask] - CROP_START_SECONDS, pupil[mask]
+            # Compute Basler-to-SCAPE offset
+            trigger_csvs = list((BASE / "trigger").glob("*_trigger.csv"))
+            if trigger_csvs:
+                trig = pd.read_csv(trigger_csvs[0])
+                basler_start = trig.loc[trig['baslerExposureTrigger'].diff() == 1, 'time_s'].iloc[0]
+                andor_start = trig.loc[trig['AndorXylaTrigger'].diff() == 1, 'time_s'].iloc[0]
+                offset = andor_start - basler_start
+            else:
+                offset = 0.0
+            total_crop = offset + CROP_START_SECONDS
+            mask = (t_pup >= total_crop) & (t_pup <= total_crop + time_s[-1])
+            t_pup, pupil = t_pup[mask] - total_crop, pupil[mask]
 
     # Load accel
     t_acc, accel = None, None
@@ -131,6 +141,7 @@ def main():
     if t_acc is not None:
         axes[ax_idx].plot(t_acc, accel, color='purple', lw=0.8)
         axes[ax_idx].set_ylabel("Accelerometer")
+        axes[ax_idx].set_ylim(0, 0.65)
         axes[ax_idx].grid(alpha=0.3)
         ax_idx += 1
 

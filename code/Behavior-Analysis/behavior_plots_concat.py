@@ -18,14 +18,14 @@ from scipy.io import loadmat
 import tifffile
 
 # ===== CONFIG =====
-DATE = "2026-04-16"
-MOUSE = "rbp4_132_phpeb"
-RUNS = ["run6", "run7"]
-RUN_NUMS = ["006", "007"]  # for filenames
+DATE = "2026-05-08"
+MOUSE = "rbp4_139_phpeb"
+RUNS = ["run5", "run6"]
+RUN_NUMS = ["005", "006"]  # for filenames
 
 FRAME_RATE = 5  # Hz (imaging)
-SKIP_FIRST_SECONDS = 13.0
-CROP_START_SECONDS = 13.0  # cut this many seconds from the start of each run
+SKIP_FIRST_SECONDS = 14.0
+CROP_START_SECONDS = 14.0  # cut this many seconds from the start of each run
 HAS_ACH = False
 
 BASE_ROOT = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/"
@@ -37,7 +37,7 @@ def load_ca_one_run(run):
     """Compute global Ca ΔF/F from raw stack for one run."""
     base = BASE_ROOT / run
     raw_clean = base / "preprocessed" / "raw_clean.tif"
-    raw_orig = base / "raw" / f"runB_{run}_{MOUSE}-reslice-bin.tif"
+    raw_orig = base / "raw" / f"runA_{run}_{MOUSE}-reslice-bin.tif"
     raw_path = raw_clean if raw_clean.exists() else raw_orig
 
     if not raw_path.exists():
@@ -98,10 +98,23 @@ def load_behavior_one_run(run, run_num):
     pupil = gaussian_filter1d(pupil, sigma=2)  # light smooth
     whisker = mat['whisker']['whisker_smooth_long'][0][0].flatten()
     time = np.arange(len(pupil)) / 10.0
-    mask = time >= CROP_START_SECONDS
+
+    # Compute Basler-to-SCAPE offset from trigger CSV
+    trigger_csvs = list((base / "trigger").glob("*_trigger.csv"))
+    if trigger_csvs:
+        trig = pd.read_csv(trigger_csvs[0])
+        basler_start = trig.loc[trig['baslerExposureTrigger'].diff() == 1, 'time_s'].iloc[0]
+        andor_start = trig.loc[trig['AndorXylaTrigger'].diff() == 1, 'time_s'].iloc[0]
+        offset = andor_start - basler_start
+        print(f"    Basler→SCAPE offset = {offset:.3f}s")
+    else:
+        offset = 0.0
+
+    total_crop = offset + CROP_START_SECONDS
+    mask = time >= total_crop
     # Smooth whisker for cleaner plot
     whisker_sm = gaussian_filter1d(whisker, sigma=5)  # ~0.5s at 10 Hz
-    return time[mask] - CROP_START_SECONDS, pupil[mask], whisker_sm[mask]
+    return time[mask] - total_crop, pupil[mask], whisker_sm[mask]
 
 
 def load_accel_one_run(run, run_num):
@@ -212,10 +225,16 @@ def main():
     if len(panels) == 1:
         axes = [axes]
 
+    ACCEL_YLIM = 0.65  # global max accel_mag across all runs
+
     for ax, (ylabel, t, data, color, boundaries) in zip(axes, panels):
         ax.plot(t, data, color=color, linewidth=0.8)
         ax.set_ylabel(ylabel)
         ax.grid(alpha=0.3)
+        if ylabel == "Accelerometer":
+            ax.set_ylim(0, ACCEL_YLIM)
+        elif ylabel == "Whisker Motion":
+            ax.set_ylim(0, 1.0)
         # Run boundary lines
         for b in boundaries[1:-1]:
             ax.axvline(b, color='red', ls='-', lw=1.5, alpha=0.2)

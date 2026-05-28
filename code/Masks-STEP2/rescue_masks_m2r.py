@@ -29,9 +29,9 @@ from skimage.measure import regionprops
 from skimage.draw import line as draw_line
 
 # ===== CONFIG =====
-DATE = "2026-04-16"
+DATE = "2026-05-12"
 MOUSE = "rbp4_132_phpeb"
-RUN = "run1"
+RUN = "run5"
 
 VOXEL_SIZE = (3.9, 1.0, 1.2)  # Z, Y, X µm
 VOXEL_VOL = float(np.prod(VOXEL_SIZE))
@@ -39,15 +39,10 @@ VOXEL_VOL = float(np.prod(VOXEL_SIZE))
 # Event crops to rescue from (iterate one by one)
 EVENT_FILES = [
     "event_group_0000.tif",
+    "event_group_0001.tif",
     "event_group_0002.tif",
-    "event_group_0005.tif",
     "event_group_0006.tif",
-    "event_group_0007.tif",
-    "event_group_0008.tif",
-    "event_group_0009.tif",
-    "event_group_0013.tif",
-    "event_group_0018.tif",
-    "event_group_0027.tif",
+    "event_group_0010.tif"
 ]
 
 # Seed line width (pixels around each drawn line)

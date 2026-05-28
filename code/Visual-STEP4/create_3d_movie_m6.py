@@ -1,140 +1,134 @@
 import numpy as np
 import tifffile
 from pathlib import Path
-import napari
 from tqdm import tqdm
-import imageio
-import time
+import gc
 
 # === CONFIGURATION ===
-DATE = "2026-03-20"
-MOUSE = "rbp4cre_139_phpeb"
+DATE = "2026-04-16"
+MOUSE = "rbp4_132_phpeb"
 RUN = "run3"
 Y_CROP = 3
-VOXEL_SCALE = (3.9, 1.0, 1.2)  # (Z, Y, X) in microns
+FRAME_RATE = 5  # Hz
+SKIP_FIRST_SECONDS = 12.0  # drop first N seconds (laser warmup)
+CHUNK_DURATION = 120  # seconds per chunk
 
-# Specify which cells to include
+# Cell selection options
+USE_ALL_CELLS = True  # Set to False to use only SELECTED_CELLS
 SELECTED_CELLS = [
     "dend_001","dend_003","dend_008", "dend_012", 
     "dend_014", "dend_015", "dend_016", "dend_019"
 ]
 
+
 # === PATHS ===
-BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/data") / DATE / MOUSE / RUN
+BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
 MASK_FOLDER = BASE / "labelmaps_curated_dynamic"
 RAW_CLEAN_PATH = BASE / "preprocessed" / "raw_clean.tif"
-RAW_ORIG_PATH = BASE / "raw" / f"runA_{RUN}_{MOUSE}_reslice_bin.tif"
+RAW_ORIG_PATH = BASE / "raw" / f"runB_{RUN}_{MOUSE}-reslice-bin.tif"
 RAW_STACK_PATH = RAW_CLEAN_PATH if RAW_CLEAN_PATH.exists() else RAW_ORIG_PATH
-OUTPUT_PATH =  BASE / "overlays" / "selected_cells_dff.tif"
-VIDEO_PATH = BASE / "overlays" / "selected_cells_rotation.mp4"
-OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-# === LOAD RAW DATA ===
-print(f"Loading {'clean' if RAW_STACK_PATH == RAW_CLEAN_PATH else 'original'} raw stack from: {RAW_STACK_PATH}")
-raw_stack = tifffile.imread(RAW_STACK_PATH).astype(np.float32)
-if Y_CROP > 0:
-    raw_stack = raw_stack[:, :, :-Y_CROP, :]
-T, Z, Y, X = raw_stack.shape
+def main():
+    # === LOAD RAW DATA ===
+    print(f"Loading {'clean' if RAW_STACK_PATH == RAW_CLEAN_PATH else 'original'} raw stack from: {RAW_STACK_PATH}")
+    raw_stack = tifffile.imread(RAW_STACK_PATH).astype(np.float32)
+    if Y_CROP > 0:
+        raw_stack = raw_stack[:, :, :-Y_CROP, :]
+    
+    # Skip first seconds
+    skip_frames = int(SKIP_FIRST_SECONDS * FRAME_RATE)
+    if skip_frames > 0:
+        raw_stack = raw_stack[skip_frames:]
+        print(f"Skipped first {SKIP_FIRST_SECONDS}s ({skip_frames} frames)")
+    
+    T, Z, Y, X = raw_stack.shape
+    print(f"Stack shape: {raw_stack.shape}, Memory: {raw_stack.nbytes / 1e9:.1f} GB")
 
-# === CALCULATE F0 AND ΔF/F ===
-print("Calculating F0 (lowest 20% of values)...")
-sorted_stack = np.sort(raw_stack, axis=0)
-lowest_20pct = sorted_stack[:int(T * 0.2)]
-F0 = np.mean(lowest_20pct, axis=0)
+    # Calculate chunk parameters
+    frames_per_chunk = CHUNK_DURATION * FRAME_RATE
+    n_chunks = min(3, (T + frames_per_chunk - 1) // frames_per_chunk)  # Max 3 chunks
+    print(f"Splitting into {n_chunks} chunks of {frames_per_chunk} frames each")
 
-print("Calculating ΔF/F stack...")
-dff_stack = (raw_stack - F0[None]) / (F0[None] + 1e-6)
-del raw_stack, sorted_stack, lowest_20pct  # free memory
+    # === CALCULATE F0 ONCE ===
+    print("Calculating F0 baseline...")
+    F0 = np.percentile(raw_stack, 20, axis=0)
 
-# === PREPARE OUTPUT OVERLAY ===
-overlay_stack = np.zeros_like(dff_stack, dtype=np.float32)
+    # === LOAD MASKS ===
+    if USE_ALL_CELLS:
+        mask_paths = sorted(MASK_FOLDER.glob("dend_*.tif"))
+        print(f"Processing all {len(mask_paths)} cells")
+    else:
+        mask_paths = [MASK_FOLDER / f"{cell_name}_labelmap.tif" for cell_name in SELECTED_CELLS]
+        print(f"Processing {len(SELECTED_CELLS)} selected cells")
 
-# === LOAD SELECTED MASKS AND OVERLAY ===
-print(f"Processing {len(SELECTED_CELLS)} selected cells")
-mask_paths = [MASK_FOLDER / f"{cell_name}_labelmap.tif" for cell_name in SELECTED_CELLS]
+    # Load all masks once
+    masks = []
+    for path in mask_paths:
+        if path.exists():
+            mask = tifffile.imread(path).astype(bool)
+            # Adjust mask dimensions to match cropped stack
+            if mask.shape != (Z, Y, X):
+                print(f"Adjusting mask {path.name} from {mask.shape} to ({Z}, {Y}, {X})")
+                if mask.shape[1] > Y:
+                    mask = mask[:, :-Y_CROP, :]
+                elif mask.shape[1] < Y:
+                    pad_y = Y - mask.shape[1]
+                    mask = np.pad(mask, ((0,0), (0,pad_y), (0,0)), mode='constant')
+            if np.any(mask):
+                masks.append(mask)
 
-for path in tqdm(mask_paths, desc="Overlaying cells"):
-    if not path.exists():
-        print(f"  Warning: Mask not found at {path}")
-        continue
+    print(f"Loaded {len(masks)} valid masks")
+
+    # === PROCESS EACH CHUNK ===
+    for chunk_idx in range(n_chunks):
+        print(f"\n=== Processing chunk {chunk_idx + 1}/{n_chunks} ===")
         
-    mask = tifffile.imread(path).astype(bool)
-    
-    # Ensure mask dimensions match raw stack
-    if mask.shape != (Z, Y, X):
-        print(f"Adjusting mask {path.name} from {mask.shape} to {(Z, Y, X)}")
-        # If mask is smaller in Y, pad it; if larger, crop it
-        if mask.shape[1] < Y:
-            pad_y = Y - mask.shape[1]
-            mask = np.pad(mask, ((0,0), (0,pad_y), (0,0)), mode='constant')
-        elif mask.shape[1] > Y:
-            crop_y = mask.shape[1] - Y
-            mask = mask[:, :-crop_y, :]
-    
-    if not np.any(mask):
-        print(f"  Warning: Empty mask in {path.name}")
-        continue
+        # Define time range for this chunk
+        t_start = chunk_idx * frames_per_chunk
+        t_end = min(t_start + frames_per_chunk, T)
+        
+        print(f"Time range: {t_start}-{t_end} ({t_end - t_start} frames)")
+        
+        # Extract chunk
+        chunk = raw_stack[t_start:t_end]
+        
+        # Calculate ΔF/F for chunk
+        dff_chunk = (chunk - F0[None]) / (F0[None] + 1e-6)
+        
+        # Create overlay for chunk
+        overlay_chunk = np.zeros_like(dff_chunk)
+        
+        # Apply masks
+        for mask in tqdm(masks, desc=f"Overlaying chunk {chunk_idx + 1}"):
+            # Expand mask to 4D by adding time dimension
+            mask_4d = mask[None, :, :, :]
+            mask_4d = np.broadcast_to(mask_4d, dff_chunk.shape)
+            overlay_chunk[mask_4d] = dff_chunk[mask_4d]
+        
+        # Save chunk
+        chunk_name = f"chunk_{chunk_idx + 1:02d}_{t_start:04d}-{t_end:04d}"
+        chunk_path = BASE / "overlays" / f"{chunk_name}_dff.tif"
+        chunk_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        print(f"Saving chunk to: {chunk_path}")
+        tifffile.imwrite(chunk_path, overlay_chunk.astype(np.float32))
+        
+        del chunk, dff_chunk, overlay_chunk
+        gc.collect()
 
-    # Broadcast mask to time dimension
-    mask_4d = np.broadcast_to(mask, (T, Z, Y, X))
-    overlay_stack[mask_4d] = dff_stack[mask_4d]
+    del raw_stack
+    gc.collect()
+    print("All chunks processed and saved!")
 
-# === SAVE 4D MOVIE ===
-print(f"Saving overlay movie to: {OUTPUT_PATH}")
-tifffile.imwrite(OUTPUT_PATH, overlay_stack.astype(np.float32))
+    print("\nTo view chunks in Napari, load them individually:")
+    for chunk_idx in range(n_chunks):
+        t_start = chunk_idx * frames_per_chunk
+        t_end = min(t_start + frames_per_chunk, T)
+        chunk_name = f"chunk_{chunk_idx + 1:02d}_{t_start:04d}-{t_end:04d}"
+        chunk_path = BASE / "overlays" / f"{chunk_name}_dff.tif"
+        print(f"  Chunk {chunk_idx + 1}: {chunk_path}")
 
-# === LAUNCH NAPARI VIEWER ===
-print("Launching Napari viewer...")
-viewer = napari.Viewer(ndisplay=3)
+    print("\nUse view_napari.py to visualize individual chunks.")
 
-# Add the image layer
-image_layer = viewer.add_image(
-    overlay_stack,
-    name="Selected Cells ΔF/F",
-    scale=(1, *VOXEL_SCALE),  # (T, Z, Y, X)
-    colormap="turbo",
-    rendering="attenuated_mip",
-)
-
-# Add more translucent outline cube
-outline = np.zeros((Z, Y, X), dtype=bool)
-outline[[0, -1], :, :] = True
-outline[:, [0, -1], :] = True
-outline[:, :, [0, -1]] = True
-
-cube_layer = viewer.add_labels(outline, name="Grid Cube", scale=VOXEL_SCALE, opacity=0.05)
-
-# === CREATE ROTATING VIDEO ===
-print(f"Creating rotating video at {VIDEO_PATH}...")
-
-# Set up the camera for 3D view
-viewer.dims.ndisplay = 3
-viewer.camera.zoom = 0.5  # Adjust as needed
-
-# Create a video writer
-fps = 5
-writer = imageio.get_writer(VIDEO_PATH, fps=fps)
-
-# Set the time point to use (middle of the stack)
-time_point = min(T // 2, T - 1)
-viewer.dims.set_point(0, time_point)
-
-# Capture frames while rotating
-n_frames = 180  # 6 seconds at 30 fps
-for i in tqdm(range(n_frames), desc="Capturing frames"):
-    # Rotate the camera around the vertical axis
-    angle = i * 2  # 2 degrees per frame = 360 degrees in 180 frames
-    viewer.camera.angles = (0, angle, 90)  # (elevation, azimuth, roll)
-    
-    # Small delay to ensure the view is updated
-    time.sleep(0.01)
-    
-    # Capture the frame
-    frame = viewer.screenshot(canvas_only=True)
-    writer.append_data(frame)
-
-writer.close()
-print(f"✅ Video saved to: {VIDEO_PATH}")
-
-# Keep the viewer open
-napari.run()
+if __name__ == "__main__":
+    main()

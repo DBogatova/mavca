@@ -36,9 +36,9 @@ from skimage.filters import sato
 from tqdm import tqdm
 
 # ================== CONFIG ==================
-DATE = "2026-04-16"
+DATE = "2026-05-12"
 MOUSE = "rbp4_132_phpeb"
-RUN = "run1"
+RUN = "run6"
 
 BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
 EVENT_FOLDER = BASE / "preprocessed" / "event_crops"
@@ -83,7 +83,7 @@ GROW_DILATION_ITERS = 3            # Dilation iterations
 # "off"      = ignore M1.5, use event crops only (original auto_mask behavior)
 # "guide"    = union bestframe seeds with auto_mask candidates
 # "primary"  = detect directly from M1.5 best frames (skip auto_mask enhancement)
-BESTFRAME_MODE = "primary"         # "off", "guide", or "primary"
+BESTFRAME_MODE = "guide"         # "off", "guide", or "primary"
 BESTFRAMES_FOLDER = BASE / "preprocessed" / "best_frames"
 BESTFRAME_GLOB = "bestframe_*_rank??_3d.tif"
 BESTFRAME_INTENSITY_PCT = 94.0     # Percentile threshold on best frames

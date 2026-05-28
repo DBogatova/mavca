@@ -4,7 +4,7 @@ Concatenated ΔF/F traces across multiple runs sharing the same masks.
 
 For each run:
   - Load raw stack, skip first N seconds
-  - Compute F0 baseline (20th percentile) per run independently
+  - Compute F0 baseline (10th percentile) per run independently
   - Extract core ΔF/F traces using shared masks
   - Background-subtract using shell
 
@@ -83,7 +83,7 @@ def load_masks(Z, Y, X):
         core = binary_erosion(m, structure=ball(1))
         if not core.any():
             core = m.copy()
-        shell = binary_dilation(m, structure=ball(3)) & ~m
+        shell = binary_dilation(m, structure=ball(3)) & ~binary_dilation(m, structure=ball(2))
         rois.append({
             "name": name,
             "mask": m,
@@ -98,8 +98,7 @@ def extract_traces_one_run(run, rois):
     """Extract ΔF/F traces for one run. Returns dict of name → trace array."""
     raw_path = get_raw_path(run)
     print(f"\n  Loading {run}: {raw_path.name}")
-    tf = tifffile.TiffFile(str(raw_path))
-    store = tf.series[0]
+    store = tifffile.memmap(str(raw_path), mode='r')
     shape = store.shape
     if len(shape) == 3:
         T_raw, Y, X = shape
@@ -117,14 +116,14 @@ def extract_traces_one_run(run, rois):
     f0_data = []
     for t0 in range(skip_frames, T_raw, CHUNK_T):
         t1 = min(t0 + CHUNK_T, T_raw)
-        chunk = np.asarray(store.asarray()[t0:t1]).astype(np.float32)
+        chunk = np.asarray(store[t0:t1]).astype(np.float32)
         if len(shape) == 3:
             chunk = chunk[:, np.newaxis, :, :]
         f0_data.append(chunk)
         if sum(c.shape[0] for c in f0_data) > 500:
             break
     f0_stack = np.concatenate(f0_data, axis=0)
-    f0_vol = np.percentile(f0_stack, 20, axis=0)
+    f0_vol = np.percentile(f0_stack, 10, axis=0)
     del f0_data, f0_stack
     gc.collect()
 
@@ -134,7 +133,7 @@ def extract_traces_one_run(run, rois):
     frame_idx = 0
     for t0 in range(skip_frames, T_raw, CHUNK_T):
         t1 = min(t0 + CHUNK_T, T_raw)
-        chunk = np.asarray(store.asarray()[t0:t1]).astype(np.float32)
+        chunk = np.asarray(store[t0:t1]).astype(np.float32)
         if len(shape) == 3:
             chunk = chunk[:, np.newaxis, :, :]
 

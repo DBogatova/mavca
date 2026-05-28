@@ -11,7 +11,7 @@ import matplotlib.cm as cm
 from pathlib import Path
 
 # ---- Config ----
-STACK_PATH = "/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data/2026-04-16/rbp4_132_phpeb/run1/overlays/chunk_01_0000-0540_dff.tif"
+STACK_PATH = "/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data/2026-04-16/rbp4_132_phpeb/run3/overlays/chunk_01_0000-0540_dff.tif"
 RUN_NAME = "run3"
 FRAME_RATE = 5.0  # Hz
 
@@ -141,8 +141,8 @@ def _export_mp4(v):
 
     print("\nExporting MP4 (3D rendered, fixed angle)...")
     mp4_path = Path(STACK_PATH).parent / f"{RUN_NAME}_3d.mp4"
-    writer = imageio.get_writer(str(mp4_path), fps=FRAME_RATE, codec='libx264',
-                                 quality=8, pixelformat='yuv420p')
+    writer = imageio.get_writer(str(mp4_path), format='FFMPEG', fps=FRAME_RATE,
+                                 codec='libx264', quality=8, pixelformat='yuv420p')
 
     for frame in range(T_total):
         viewer.dims.set_current_step(0, frame)

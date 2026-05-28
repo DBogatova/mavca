@@ -12,26 +12,26 @@ from scipy.io import loadmat
 import tifffile
 
 # ===== CONFIG =====
-DATE = "2026-04-16"
+DATE = "2026-05-12"
 MOUSE = "rbp4_132_phpeb"
-RUN = "run1"
+RUN = "run5"
 
 FRAME_RATE = 5  # Hz
-SKIP_FIRST_SECONDS = 12.0
-CROP_START_SECONDS = 12.0  # cut first N seconds from all signals
+SKIP_FIRST_SECONDS = 14.0
+CROP_START_SECONDS = 14.0  # cut first N seconds from all signals
 HAS_ACH = False
 
 # ===== PATHS =====
 BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/"
             "apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
-BEHAVIOR_MAT = BASE / "behavior" / "rbp4_132_phpeb_26-04-16_Run001_behavior.mat"
+BEHAVIOR_MAT = BASE / "behavior" / "rbp4_132_phpeb_26-05-12_Run005_behavior.mat"
 OUTPUT_PATH = BASE / "behavior_combined_plot.png"
 
 
 def load_calcium_ach_data():
     """Compute global Ca ΔF/F from raw stack (mean of all non-dead voxels)."""
     raw_clean = BASE / "preprocessed" / "raw_clean.tif"
-    raw_orig = BASE / "raw" / f"runB_{RUN}_{MOUSE}-reslice-bin.tif"
+    raw_orig = BASE / "raw" / f"runA_{RUN}_{MOUSE}-reslice-bin.tif"
     raw_path = raw_clean if raw_clean.exists() else raw_orig
 
     if not raw_path.exists():
@@ -81,28 +81,52 @@ def load_calcium_ach_data():
 
 
 def load_behavior_data():
-    """Load pupil and whisker from behavior MAT file."""
+    """Load pupil and whisker from behavior MAT file.
+    Returns values normalized to [0, 1] using the max from the first 14s as reference."""
     if not BEHAVIOR_MAT.exists():
         print(f"Behavior MAT not found: {BEHAVIOR_MAT}")
         return None, None, None
 
     mat_data = loadmat(BEHAVIOR_MAT)
     pupil = mat_data['pupil']['pupil_raw'][0][0].flatten()
-    # Light smooth on raw pupil
-    pupil = gaussian_filter1d(pupil, sigma=2)  # ~0.2s at 10 Hz
+    pupil = gaussian_filter1d(pupil, sigma=2)
     whisker = mat_data['whisker']['whisker_smooth_long'][0][0].flatten()
+    whisker = gaussian_filter1d(whisker, sigma=3)
 
     n = len(pupil)
     print(f"  Behavior: {n} samples at 10 Hz = {n/10:.1f}s")
 
     time = np.arange(n) / 10.0
-    mask = time >= CROP_START_SECONDS
-    whisker_sm = gaussian_filter1d(whisker, sigma=3)
-    return time[mask] - CROP_START_SECONDS, pupil[mask], whisker_sm[mask]
+
+    # Compute Basler-to-SCAPE offset from trigger CSV
+    trigger_csvs = list((BASE / "trigger").glob("*_trigger.csv"))
+    if trigger_csvs:
+        trig = pd.read_csv(trigger_csvs[0])
+        basler_start = trig.loc[trig['baslerExposureTrigger'].diff() == 1, 'time_s'].iloc[0]
+        andor_start = trig.loc[trig['AndorXylaTrigger'].diff() == 1, 'time_s'].iloc[0]
+        offset = andor_start - basler_start
+        print(f"  Basler→SCAPE offset = {offset:.3f}s")
+    else:
+        offset = 0.0
+        print("  No trigger CSV, assuming no Basler offset")
+
+    total_crop = offset + CROP_START_SECONDS
+
+    # Normalize to max from first 14s (full dynamic range reference)
+    pre_mask = (time >= offset) & (time < total_crop)
+    pupil_max = np.max(pupil[pre_mask]) if pre_mask.any() else np.max(pupil)
+    whisker_max = np.max(np.abs(whisker[pre_mask])) if pre_mask.any() else np.max(np.abs(whisker))
+    pupil_norm = pupil / (pupil_max + 1e-6)
+    whisker_norm = whisker / (whisker_max + 1e-6)
+    print(f"  Pupil max (pre-crop): {pupil_max:.1f}, post-crop range: {pupil_norm[time >= total_crop].min():.2f}-{pupil_norm[time >= total_crop].max():.2f}")
+    print(f"  Whisker max (pre-crop): {whisker_max:.1f}, post-crop range: {whisker_norm[time >= total_crop].min():.2f}-{whisker_norm[time >= total_crop].max():.2f}")
+
+    mask = time >= total_crop
+    return time[mask] - total_crop, pupil_norm[mask], whisker_norm[mask]
 
 
 def load_accelerometer_data():
-    """Load accelerometer from CSV, time relative to trigger onset."""
+    """Load accelerometer, normalized to max from first 14s."""
     run_num = RUN.replace("run", "").zfill(3)
     accel_csv = BASE / "trigger" / f"Run{run_num}_t1_accel.csv"
 
@@ -116,11 +140,11 @@ def load_accelerometer_data():
     accel = df['accel_mag'].values if 'accel_mag' in df.columns else df.iloc[:, 1].values
     time = df['aligned_time_s'].values if 'aligned_time_s' in df.columns else df['sample'].values / 1000.0
 
-    # Crop and clean
-    mask = time >= CROP_START_SECONDS
-    accel_clean = np.abs(accel[mask])
+    accel_clean = np.abs(accel)
     accel_clean = gaussian_filter1d(accel_clean, sigma=10)
-    return time[mask] - CROP_START_SECONDS, accel_clean, 0
+
+    mask = time >= CROP_START_SECONDS
+    return time[mask] - CROP_START_SECONDS, accel_clean[mask], 0
 
 
 def plot_combined_signals():
@@ -160,6 +184,8 @@ def plot_combined_signals():
 
     for ax, (ylabel, t, data, color) in zip(axes, panels):
         ax.plot(t, data, color=color, linewidth=1.0)
+        if ylabel == "Accelerometer":
+            ax.set_ylim(0, 0.65)
         ax.set_ylabel(ylabel)
         ax.grid(alpha=0.3)
 

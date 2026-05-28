@@ -26,15 +26,15 @@ import gc
 mpl.rcParams['font.family'] = 'CMU Serif'
 
 # === CONFIGURATION ===
-DATE = "2026-04-16"
+DATE = "2026-05-12"
 MOUSE = "rbp4_132_phpeb"
-RUN = "run1"
+RUN = "run6"
 
 # Acquisition
 FS_HZ = 5.0  # frames per second
 
 # Time trimming
-SKIP_FIRST_SECONDS = 12.0  # Set to 7.0 to remove first 7 seconds
+SKIP_FIRST_SECONDS = 14.0  # Set to 7.0 to remove first 7 seconds
 
 CROP_RADIUS = 5  # Number of frames to include before/after each event
 START_THRESHOLD = 0.3  # Z-score threshold for event start
@@ -49,7 +49,7 @@ MIN_PROMINENCE = 1.0      # Minimum prominence in MAD units
 
 # === PATHS ===
 BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
-RAW_ORIG_PATH = BASE / "raw" / f"runB_{RUN}_{MOUSE}-reslice-bin.tif"
+RAW_ORIG_PATH = BASE / "raw" / f"runA_{RUN}_{MOUSE}-reslice-bin.tif"
 RAW_CLEAN_PATH = BASE / "preprocessed" / "raw_clean.tif"
 RAW_STACK_PATH = RAW_CLEAN_PATH if RAW_CLEAN_PATH.exists() else RAW_ORIG_PATH
 
@@ -155,8 +155,9 @@ def main():
     # Multiplicative detrending: F_corr = F/B - 1
     f_corr = (frame_scores / (baseline + 1e-6)) - 1
     
-    # Compute rolling MAD for robust noise estimation
+    # Compute rolling MAD and median for robust noise estimation
     mad_values = np.zeros_like(f_corr)
+    local_median = np.zeros_like(f_corr)
     half_noise_window = NOISE_WINDOW // 2
     
     for i in range(len(f_corr)):
@@ -164,11 +165,11 @@ def main():
         end = min(len(f_corr), i + half_noise_window + 1)
         window_data = f_corr[start:end]
         median_val = np.median(window_data)
+        local_median[i] = median_val
         mad_values[i] = np.median(np.abs(window_data - median_val))
     
-    # Compute robust z-scores
-    median_f_corr = np.median(f_corr)
-    z_scores = (f_corr - median_f_corr) / (1.4826 * mad_values + 1e-6)
+    # Compute robust z-scores using local median and local MAD
+    z_scores = (f_corr - local_median) / (1.4826 * mad_values + 1e-6)
     
     # Detect events with hysteresis thresholding
     print("Detecting events with hysteresis thresholding...")

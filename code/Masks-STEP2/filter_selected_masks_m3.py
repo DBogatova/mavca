@@ -25,9 +25,9 @@ from scipy.spatial.distance import cdist
 import csv
 
 # ======= CONFIG =======
-DATE = "2026-04-16"
+DATE = "2026-05-12"
 MOUSE = "rbp4_132_phpeb"
-RUN = "run1"
+RUN = "run5"
 
 VOXEL_SIZE = (3.9, 1.0, 1.2)  # (Z,Y,X) μm
 NEIGHBOR_K_DEFAULT = 3
@@ -41,7 +41,7 @@ LABELMAP_FOLDER = BASE / "labelmaps_split"
 BGS_FOLDER      = BASE / "labelmap_backgrounds_split"
 
 # 3D background: temporal max from raw 4D stack (shows all dendrites)
-RAW_STACK_PATH = BASE / "raw" / f"runB_{RUN}_{MOUSE}-reslice-bin.tif"
+RAW_STACK_PATH = BASE / "raw" / f"runA_{RUN}_{MOUSE}-reslice-bin.tif"
 M1_SKIP_SECONDS = 12.0  # must match find_events_m1.py SKIP_FIRST_SECONDS
 FS_HZ = 5.0
 EVENT_CROPS_FOLDER = BASE / "preprocessed" / "event_crops"
@@ -155,22 +155,21 @@ def mask_subtract(a, b):
     return (a.astype(bool) & ~b.astype(bool)).astype(np.uint8)
 
 def save_curated(masks, names, deleted, edited, visited):
-    # Clear old files from previous runs
+    OUTPUT_FOLDER.mkdir(parents=True, exist_ok=True)
+
+    # Clear existing output — we rewrite the full curated set from current state
     for old in OUTPUT_FOLDER.glob("dend_*_labelmap.tif"):
         old.unlink()
 
+    # Only save masks that have been reviewed (visited) and not deleted
     count = 0
     rows = []
     for i, name in enumerate(names):
-        if i not in visited and i not in deleted:
-            # Not yet reviewed — skip from log, but still save mask
-            m = edited.get(i, masks[i])
-            out = OUTPUT_FOLDER / f"dend_{count:03d}_labelmap.tif"
-            tifffile.imwrite(out, (m * (count + 1)).astype(np.uint16))
-            count += 1
-            continue
         if i in deleted:
             rows.append({"name": name, "kept": 0, "out": ""})
+            continue
+        if i not in visited:
+            # Not yet reviewed — don't save, don't log
             continue
         m = edited.get(i, masks[i])
         out = OUTPUT_FOLDER / f"dend_{count:03d}_labelmap.tif"

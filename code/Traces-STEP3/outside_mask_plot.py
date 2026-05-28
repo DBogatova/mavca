@@ -593,7 +593,7 @@ def main():
             t1 = min(T_orig, t0 + CHUNK_T)
             chunk = np.asarray(stack[t0:t1], dtype=np.float32)
             for ti in range(chunk.shape[0]):
-                vol = (chunk[ti] - f0) / (f0 + EPS + alpha)
+                vol = (chunk[ti] - f0) / (f0 + 1e-6)  # match M4 denominator
                 vol_flat = vol.ravel()
                 core_val = vol_flat[core_flat].mean()
                 shell_val = vol_flat[shell_flat].mean() if shell_flat.size > 0 else 0.0

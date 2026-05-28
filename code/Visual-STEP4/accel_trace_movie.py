@@ -154,9 +154,12 @@ def main():
     # Precompute y-limits
     ylims = []
     for name, t, d, color in panels:
-        ymin, ymax = d.min(), d.max()
-        margin = (ymax - ymin) * 0.1 + 1e-6
-        ylims.append((ymin - margin, ymax + margin))
+        if name == "Accel":
+            ylims.append((0, 0.65))
+        else:
+            ymin, ymax = d.min(), d.max()
+            margin = (ymax - ymin) * 0.1 + 1e-6
+            ylims.append((ymin - margin, ymax + margin))
 
     OUTPUT.parent.mkdir(exist_ok=True)
     writer = imageio.get_writer(str(OUTPUT), fps=IMAGING_FRAME_RATE,
