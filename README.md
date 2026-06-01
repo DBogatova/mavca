@@ -28,9 +28,16 @@ scape-data/
             ├── labelmaps_split/               # After watershed split (M2b)
             ├── labelmap_backgrounds_split/
             ├── labelmaps_curated_dynamic/     # Curated masks (M3)
+            │   ├── dend_XXX_labelmap.tif
+            │   ├── curation_log.csv
+            │   └── merge_log.csv
+            ├── dendrite_branches/             # Grouped masks (find_dendrite_branches)
             ├── traces/                        # ΔF/F traces (M4)
             │   ├── dff_traces_curated_bgsub.csv
-            │   └── dff_traces_curated_bgsub_smooth.csv
+            │   └── dff_traces_curated_bgsub_smooth.csv  # optional (downsample_traces.py)
+            ├── trigger/                       # Accelerometer + trigger CSVs
+            ├── behavior/                      # Pupil/whisker .mat files
+            ├── overlays/                      # Movies and DFF overlays
             └── masks_manifest.csv
 ```
 
@@ -123,13 +130,13 @@ Outputs: `labelmaps_curated_dynamic/dend_XXX_labelmap.tif`
 
 ### M4: Trace Extraction — `save_traces_m4.py`
 
-Extracts per-dendrite ΔF/F traces from curated masks with background subtraction (core-shell morphological approach). Streams through time in chunks to manage memory.
+Extracts per-dendrite ΔF/F traces from curated masks with background subtraction (core-shell morphological approach with 1-voxel gap). F0 baseline = 10th percentile. Streams through time in chunks to manage memory.
 
 ```bash
 python code/Traces-STEP3/save_traces_m4.py
 ```
 
-Outputs: `traces/dff_traces_curated_bgsub.csv`, per-dendrite preview plots
+Outputs: `traces/dff_traces_curated_bgsub.csv`, per-dendrite preview plots (MIP + trace)
 
 ---
 
@@ -137,15 +144,76 @@ Outputs: `traces/dff_traces_curated_bgsub.csv`, per-dendrite preview plots
 | Script | Purpose |
 |--------|---------|
 | `downsample_traces.py` | Apply smoothing and/or decimation to traces |
-| `plot_selected_traces.py` | Generate publication-quality stacked trace plots |
-| `depth_analysis_plots.py` | Analyze global Ca²⁺ activity by Y-depth (4 layers, bleach-corrected) |
+| `analyze_traces_m5.py` | Trace QA + duplicate detection |
 | `outside_mask_plot.py` | Compare inside vs outside mask dynamics with micron-based rings |
+| `outside_mask_plot_concat.py` | Same as above but concatenated across runs |
+| `all_spikes_plot.py` | Spike raster + behavior + cross-correlation plots |
+| `depth_analysis_plots.py` | Analyze global Ca²⁺ activity by Y-depth (4 layers, bleach-corrected) |
+| `combo_with_behavior.py` | Stacked ΔF/F traces + accelerometer + pupil |
+
+### M4.5: Concatenated Traces — `concat_traces_m4.5.py`
+
+Extracts ΔF/F traces across multiple runs sharing the same masks. Per-run F0 baseline (10th percentile), core-shell background subtraction with 1-voxel gap, bleach correction via exponential fit.
+
+```bash
+python code/Traces-STEP3/concat_traces_m4.5.py
+```
+
+### M8: Dual-Channel ACh+Ca — `ach_ca_traces_m8.py`
+
+Per-mask Ca and ACh ΔF/F extraction with neighborhood rings for dual-channel analysis.
+
+### M9: Peri-Event ACh — `per_run_stats_m9.py`
+
+Peri-event ACh analysis with shuffle controls.
+
+---
+
+### Mask Utilities
+| Script | Purpose |
+|--------|---------|
+| `merge_masks.py` | Merge specified mask groups in-place with sequential renumbering and logging |
+| `transfer_masks.py` | Apply curated masks from one run to another with same FOV |
+| `rescue_masks_m2r.py` | Interactive Napari rescue of missed dendrites from event crops |
+| `mask_classifier.py` | ML classifier trained on curation decisions |
+| `find_dendrite_branches.py` | Group overlapping masks by spatial overlap + temporal correlation |
+
+### Behavior Analysis
+| Script | Purpose |
+|--------|---------|
+| `behavior_plots.py` | Combined behavior + Ca plot (single run) |
+| `behavior_plots_concat.py` | Concatenated behavior + Ca across multiple runs |
+
+### Dual-Channel / Correlation Analysis
+| Script | Purpose |
+|--------|---------|
+| `dual_channel_coupling.py` | Ca-ACh correlation, regression, PCA |
+| `correlation-maps.py` | Voxel-wise correlation maps + Frangi ridge detection |
+| `ach_ca_plots.py` | Quick ACh vs Ca dual-channel overview |
+
+### Extra Analysis
+| Script | Purpose |
+|--------|---------|
+| `propagation_sequences.py` | Detect and visualize sequential activation patterns across dendrites |
+| `activity_mip_comparison.py` | Compare activity MIPs across conditions |
+| `analyze_mask_properties.py` | Compute mask spatial statistics (volume, centroid, elongation) |
+| `mask_statistics.py` | Summary statistics of mask set |
+| `mask_outline.py` | Generate mask outline overlays |
+| `check_mask_overlap.py` | Pairwise Dice overlap check for duplicates |
+| `mesoscale.py` | Mesoscale activity analysis |
+| `remove_motion_frames.py` | Remove frames with motion artifacts |
+| `remove_trace_artifacts.py` | Clean trace artifacts |
 
 ### Module 6 (M6): Visualization
 | Script | Purpose |
 |--------|---------|
-| `create_3d_movie_m6.py` | Create 3D movie visualization of entire recording |
-| `create_3d_movie_chunks_m6.py` | Create 3D movie in chunks (for long recordings) |
+| `create_3d_movie_m6.py` | Create 3D ΔF/F overlay movie |
+| `accel_trace_movie.py` | Behavior trace movie with moving time cursor |
+| `view_napari.py` | Interactive 4D Napari viewer |
+| `view_napari_dual.py` | Dual-channel Napari viewer |
+| `static_reference_volume.py` | Generate static reference volume rendering |
+| `view_4d_rotate.py` | Rotating 4D volume viewer |
+| `view_static_rotate.py` | Static rotating volume render |
 
 ---
 

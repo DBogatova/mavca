@@ -20,14 +20,14 @@ import tifffile
 import imageio
 
 # ===== CONFIG =====
-DATE = "2026-04-16"
-MOUSE = "rbp4_132_phpeb"
-RUN = "run5"
-RUN_NUM = "005"
+DATE = "2026-05-08"
+MOUSE = "rbp4_139_phpeb"
+RUN = "run6"
+RUN_NUM = "006"
 
-CROP_START_SECONDS = 12.0
+CROP_START_SECONDS = 14.0
 IMAGING_FRAME_RATE = 5
-SKIP_FIRST_SECONDS = 12.0
+SKIP_FIRST_SECONDS = 14.0
 
 FIG_W, FIG_H = 19.2, 5  # wide to match dual view (~1920px at 100 DPI)
 DPI = 1000
@@ -82,7 +82,7 @@ def load_pupil():
 
 def load_global_ca():
     raw_clean = BASE / "preprocessed" / "raw_clean.tif"
-    raw_orig = BASE / "raw" / f"runB_{RUN}_{MOUSE}-reslice-bin.tif"
+    raw_orig = BASE / "raw" / f"runA_{RUN}_{MOUSE}-reslice-bin.tif"
     raw_path = raw_clean if raw_clean.exists() else raw_orig
     if not raw_path.exists():
         return None, None
@@ -126,7 +126,7 @@ def main():
 
     # Get imaging duration
     raw_clean = BASE / "preprocessed" / "raw_clean.tif"
-    raw_orig = BASE / "raw" / f"runB_{RUN}_{MOUSE}-reslice-bin.tif"
+    raw_orig = BASE / "raw" / f"runA_{RUN}_{MOUSE}-reslice-bin.tif"
     raw_path = raw_clean if raw_clean.exists() else raw_orig
     tf = tifffile.TiffFile(str(raw_path))
     T_raw = tf.series[0].shape[0]
@@ -155,7 +155,7 @@ def main():
     ylims = []
     for name, t, d, color in panels:
         if name == "Accel":
-            ylims.append((0, 0.65))
+            ylims.append((0, 0.25))
         else:
             ymin, ymax = d.min(), d.max()
             margin = (ymax - ymin) * 0.1 + 1e-6

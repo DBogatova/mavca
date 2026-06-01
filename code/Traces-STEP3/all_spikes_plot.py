@@ -251,7 +251,7 @@ def main():
         t, d = beh["accel"]
         axes[ax_idx].plot(t, d, color='purple', lw=0.8)
         axes[ax_idx].set_ylabel("Accel")
-        axes[ax_idx].set_ylim(0, 0.65)
+        axes[ax_idx].set_ylim(0, 0.25)
         axes[ax_idx].grid(alpha=0.3)
         ax_idx += 1
 
@@ -353,7 +353,7 @@ def main():
         t_a, d_a = beh["accel"]
         axes_hm[hm_idx].plot(t_a, d_a, color='purple', lw=0.8)
         axes_hm[hm_idx].set_ylabel("Accel")
-        axes_hm[hm_idx].set_ylim(0, 0.65)
+        axes_hm[hm_idx].set_ylim(0, 0.25)
         axes_hm[hm_idx].grid(alpha=0.3)
         hm_idx += 1
 

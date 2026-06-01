@@ -18,14 +18,14 @@ from scipy.io import loadmat
 import tifffile
 
 # ===== CONFIG =====
-DATE = "2026-05-08"
-MOUSE = "rbp4_139_phpeb"
-RUNS = ["run5", "run6"]
-RUN_NUMS = ["005", "006"]  # for filenames
+DATE = "2026-05-12"
+MOUSE = "rbp4_132_phpeb"
+RUNS = ["run9", "run10"]
+RUN_NUMS = ["009", "010"]  # for filenames
 
 FRAME_RATE = 5  # Hz (imaging)
-SKIP_FIRST_SECONDS = 14.0
-CROP_START_SECONDS = 14.0  # cut this many seconds from the start of each run
+SKIP_FIRST_SECONDS = 12.0
+CROP_START_SECONDS = 12.0  # cut this many seconds from the start of each run
 HAS_ACH = False
 
 BASE_ROOT = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/"
@@ -225,7 +225,7 @@ def main():
     if len(panels) == 1:
         axes = [axes]
 
-    ACCEL_YLIM = 0.65  # global max accel_mag across all runs
+    ACCEL_YLIM = 0.25  # typical max accel_mag across runs
 
     for ax, (ylabel, t, data, color, boundaries) in zip(axes, panels):
         ax.plot(t, data, color=color, linewidth=0.8)

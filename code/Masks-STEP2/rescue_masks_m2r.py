@@ -41,8 +41,18 @@ EVENT_FILES = [
     "event_group_0000.tif",
     "event_group_0001.tif",
     "event_group_0002.tif",
+    "event_group_0004.tif",
+    "event_group_0005.tif",
     "event_group_0006.tif",
-    "event_group_0010.tif"
+    "event_group_0010.tif",
+    "event_group_0011.tif",
+    "event_group_0012.tif",
+    "event_group_0014.tif",
+    "event_group_0015.tif",
+    "event_group_0016.tif",
+    "event_group_0023.tif",
+    "event_group_0024.tif",
+    "event_group_0025.tif",
 ]
 
 # Seed line width (pixels around each drawn line)

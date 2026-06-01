@@ -11,8 +11,8 @@ import matplotlib.cm as cm
 from pathlib import Path
 
 # ---- Config ----
-STACK_PATH = "/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data/2026-04-16/rbp4_132_phpeb/run3/overlays/chunk_01_0000-0540_dff.tif"
-RUN_NAME = "run3"
+STACK_PATH = "/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data/2026-05-08/rbp4_139_phpeb/run6/overlays/chunk_01_0000-0530_dff.tif"
+RUN_NAME = "run6"
 FRAME_RATE = 5.0  # Hz
 
 # (T, Z, Y, X): time left as frames; spatial voxels in µm

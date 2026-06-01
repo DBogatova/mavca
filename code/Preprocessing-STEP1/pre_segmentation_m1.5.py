@@ -31,7 +31,7 @@ from scipy.ndimage import gaussian_filter
 # =========================
 DATE = "2026-05-12"
 MOUSE = "rbp4_132_phpeb"
-RUN = "run6"
+RUN = "run5"
 FS_HZ = 5.0
 
 BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/"

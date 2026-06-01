@@ -18,9 +18,9 @@ from scipy.ndimage import label
 from collections import defaultdict
 
 # Configuration
-DATE = "2026-04-16"
+DATE = "2026-05-12"
 MOUSE = "rbp4_132_phpeb"
-RUN = "run7"
+RUN = "run5"
 
 # Thresholds
 SPATIAL_OVERLAP_THRESHOLD = 0.05  # Minimum Jaccard index for spatial overlap
@@ -28,7 +28,7 @@ TEMPORAL_CORR_THRESHOLD = 0.3     # Minimum correlation during active periods
 MIN_ACTIVE_FRAMES = 10            # Minimum frames to consider for correlation
 
 # Masks to exclude from branch detection
-EXCLUDE_MASKS = ["dend_008"]
+EXCLUDE_MASKS = []
 
 # Paths
 BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN

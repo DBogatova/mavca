@@ -17,8 +17,8 @@ MOUSE = "rbp4_132_phpeb"
 RUN = "run5"
 
 FRAME_RATE = 5  # Hz
-SKIP_FIRST_SECONDS = 14.0
-CROP_START_SECONDS = 14.0  # cut first N seconds from all signals
+SKIP_FIRST_SECONDS = 12.0
+CROP_START_SECONDS = 12.0  # cut first N seconds from all signals
 HAS_ACH = False
 
 # ===== PATHS =====
@@ -185,7 +185,7 @@ def plot_combined_signals():
     for ax, (ylabel, t, data, color) in zip(axes, panels):
         ax.plot(t, data, color=color, linewidth=1.0)
         if ylabel == "Accelerometer":
-            ax.set_ylim(0, 0.65)
+            ax.set_ylim(0, 0.25)
         ax.set_ylabel(ylabel)
         ax.grid(alpha=0.3)
 

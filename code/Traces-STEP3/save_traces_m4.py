@@ -33,9 +33,9 @@ mpl.rcParams['font.family'] = 'CMU Serif'
 mpl.rcParams['axes.unicode_minus'] = False
 
 # ===== CONFIG =====
-DATE = "2026-04-16"
-MOUSE = "rbp4_132_phpeb"
-RUN = "run1"
+DATE = "2026-05-08"
+MOUSE = "rbp4_139_phpeb"
+RUN = "run5"
 
 FRAME_RATE = 5  # Hz
 ARTIFACT_Z = -0.5  # replace ΔF/F < -0.5 with 0 (before smoothing)
@@ -47,7 +47,7 @@ CHUNK_T = 120  # time frames per chunk for memory efficiency
 PROJECT_ROOT = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025")
 BASE = PROJECT_ROOT / "scape-data" / DATE / MOUSE / RUN
 RAW_CLEAN_PATH = BASE / "preprocessed" / "raw_clean.tif"
-RAW_ORIG_PATH = BASE / "raw" / f"runB_run1_rbp4_132_phpeb-reslice-bin.tif"
+RAW_ORIG_PATH = BASE / "raw" / f"runA_{RUN}_{MOUSE}-reslice-bin.tif"
 RAW_STACK_PATH = RAW_CLEAN_PATH if RAW_CLEAN_PATH.exists() else RAW_ORIG_PATH
 
 # Masks: set MASK_SOURCE_RUN to use masks from a different run (e.g. "run8")
@@ -190,7 +190,7 @@ def main():
 
     # ===== Compute F0 baseline =====
     skip_frames = int(SKIP_FIRST_SECONDS * FRAME_RATE)
-    print(f"Computing F0 baseline (20th percentile, skipping first {SKIP_FIRST_SECONDS}s = {skip_frames} frames)...")
+    print(f"Computing F0 baseline (10th percentile, skipping first {SKIP_FIRST_SECONDS}s = {skip_frames} frames)...")
     f0_data = []
     for t0, t1, chunk in stack_reader.iter_chunks():
         if t1 <= skip_frames:
@@ -276,7 +276,6 @@ def main():
     # ===== Per-ROI previews (MIP + trace) =====
     print("Saving previews…")
     t_axis = np.arange(T) / float(FRAME_RATE)
-    print(f"Time axis: 0 to {t_axis[-1]:.1f} seconds ({len(t_axis)} frames)")
     for roi in rois:
         name = roi["name"]
         mip = roi["mask"].max(axis=0).astype(bool)

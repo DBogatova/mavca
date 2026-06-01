@@ -141,7 +141,7 @@ def main():
     if t_acc is not None:
         axes[ax_idx].plot(t_acc, accel, color='purple', lw=0.8)
         axes[ax_idx].set_ylabel("Accelerometer")
-        axes[ax_idx].set_ylim(0, 0.65)
+        axes[ax_idx].set_ylim(0, 0.25)
         axes[ax_idx].grid(alpha=0.3)
         ax_idx += 1
 
