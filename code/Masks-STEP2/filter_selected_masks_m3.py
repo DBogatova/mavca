@@ -8,6 +8,11 @@ Hotkeys:
   u / j            : neighbor count +1 / -1  (1..6)
   m                : merge PAINT into current
   x                : subtract PAINT from current
+  e                : erase the connected component the PAINT dot touches
+  c                : keep only the largest connected component
+  t                : toggle 2D/3D display (2D needed to draw lasso)
+  l                : keep inside lasso polygon(s), delete outside (all Z)
+  p                : delete inside lasso polygon(s) (all Z)
   1/2/3            : MERGE neighbor # → current
   Shift+1/2/3      : SUBTRACT neighbor # from current
   d                : delete current
@@ -21,13 +26,14 @@ import numpy as np
 import tifffile
 import napari
 from skimage.measure import label, regionprops
+from skimage.draw import polygon2mask
 from scipy.spatial.distance import cdist
 import csv
 
 # ======= CONFIG =======
 DATE = "2026-05-12"
 MOUSE = "rbp4_132_phpeb"
-RUN = "run5"
+RUN = "run9"
 
 VOXEL_SIZE = (3.9, 1.0, 1.2)  # (Z,Y,X) μm
 NEIGHBOR_K_DEFAULT = 3
@@ -319,6 +325,11 @@ def main():
         if "draw" not in v.layers:
             v.add_labels(np.zeros_like(masks[i], np.uint8), name="draw", opacity=0.6)
 
+        # lasso layer for "keep/delete inside polygon" (draw polygons in 2D mode)
+        if "lasso" not in v.layers:
+            v.add_shapes(name="lasso", ndim=3, edge_color="yellow",
+                         face_color="transparent", edge_width=2)
+
         print(f"🔎 Focus: {names[i]} | neighbors: {', '.join([names[n] for n in neigh])}")
 
     def _autosave():
@@ -413,6 +424,83 @@ def main():
         _autosave()
         refresh_scene()
 
+    # Erase the connected component(s) touched by the paint dot
+    @v.bind_key("e")
+    def _erase_component(viewer):
+        i = idx[0]
+        base = (edited.get(i, masks[i]) > 0)
+        draw = (v.layers["draw"].data > 0)
+        lab = label(base)
+        hit = np.unique(lab[draw & (lab > 0)])
+        if hit.size == 0:
+            print("⚠️  Dot the unwanted blob first, then press 'e'")
+            return
+        edited[i] = (base & ~np.isin(lab, hit)).astype(np.uint8)
+        v.layers["draw"].data = np.zeros_like(masks[i], np.uint8)
+        print(f"🧽 Erased {hit.size} component(s) from {names[i]}")
+        _autosave()
+        refresh_scene()
+
+    # Keep only the largest connected component (e.g. after a cut stroke + 'x')
+    @v.bind_key("c")
+    def _keep_largest(viewer):
+        i = idx[0]
+        base = (edited.get(i, masks[i]) > 0)
+        lab, n = label(base, return_num=True)
+        if n <= 1:
+            print("✓ Already a single component")
+            return
+        sizes = np.bincount(lab.ravel()); sizes[0] = 0
+        edited[i] = (lab == sizes.argmax()).astype(np.uint8)
+        print(f"🪓 Kept largest of {n} components for {names[i]}")
+        _autosave()
+        refresh_scene()
+
+    # Lasso: keep/delete everything inside drawn polygon(s), across all Z
+    def _lasso_mask(shape_zyx):
+        Z, Y, X = shape_zyx
+        polys = v.layers["lasso"].data if "lasso" in v.layers else []
+        if len(polys) == 0:
+            return None
+        keep2d = np.zeros((Y, X), bool)
+        for poly in polys:
+            keep2d |= polygon2mask((Y, X), np.asarray(poly)[:, -2:])
+        return np.broadcast_to(keep2d, (Z, Y, X))
+
+    @v.bind_key("l")
+    def _lasso_keep(viewer):
+        i = idx[0]
+        inside = _lasso_mask(masks[i].shape)
+        if inside is None:
+            print("⚠️  Draw a loop around the cell to KEEP (polygon tool, 2D mode), then press 'l'")
+            return
+        base = (edited.get(i, masks[i]) > 0)
+        edited[i] = (base & inside).astype(np.uint8)
+        v.layers["lasso"].data = []
+        print(f"⭕ Kept inside lasso for {names[i]} (outside deleted)")
+        _autosave()
+        refresh_scene()
+
+    @v.bind_key("p")
+    def _lasso_delete(viewer):
+        i = idx[0]
+        inside = _lasso_mask(masks[i].shape)
+        if inside is None:
+            print("⚠️  Draw a loop around the junk to DELETE, then press 'p'")
+            return
+        base = (edited.get(i, masks[i]) > 0)
+        edited[i] = (base & ~inside).astype(np.uint8)
+        v.layers["lasso"].data = []
+        print(f"⭕ Deleted inside lasso for {names[i]}")
+        _autosave()
+        refresh_scene()
+
+    # Toggle 2D/3D display (2D needed to draw lasso polygons)
+    @v.bind_key("t")
+    def _toggle_ndisplay(viewer):
+        v.dims.ndisplay = 2 if v.dims.ndisplay == 3 else 3
+        print(f"🖥️  display = {v.dims.ndisplay}D")
+
     # Neighbor helpers
     def neighbor_indices():
         i = idx[0]
@@ -470,6 +558,8 @@ def main():
     print("\n=== INSTRUCTIONS ===")
     print("Left/Right: navigate  |  b: bg on/off  |  n: event/global bg  |  u/j: +/- neighbors")
     print("m: merge PAINT  |  x: subtract PAINT")
+    print("e: erase PAINT-dotted component  |  c: keep largest component")
+    print("t: 2D/3D toggle  |  l: KEEP inside lasso (delete outside)  |  p: DELETE inside lasso")
     print("q/w/r: MERGE neighbor 1/2/3 → current   |   a/s/f: SUBTRACT neighbor 1/2/3")
     print("d: delete  |  k: keep next")
     print("Ctrl+R: reset paint  |  Ctrl+S: save all")

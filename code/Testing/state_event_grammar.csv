@@ -1,0 +1,6 @@
+state,n_frames,n_events,event_rate,local_rate,global_rate,frac_global,mean_participation,mean_amp,footprint_diversity
+quiet,539,15,8.3,4.5,0.0,0.0,0.041,2.57,0.6
+pre,371,146,118.1,8.9,56.6,0.479,0.164,4.95,0.32
+onset,106,111,314.2,25.5,107.5,0.342,0.144,3.67,0.3
+sustained,1,0,,,,,,,
+post,183,19,31.1,9.8,1.6,0.053,0.09,2.71,0.63

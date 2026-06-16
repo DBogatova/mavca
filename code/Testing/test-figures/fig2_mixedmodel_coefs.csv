@@ -1,0 +1,6 @@
+model,term,coef,p,CI
+depth-only,depth_um_z,-0.145,0.002,"[-0.24,-0.05]"
++branch_order,depth_um_z,-0.147,0.002,"[-0.24,-0.05]"
++branch_order,branch_order_z,-0.029,0.563,"[-0.13,+0.07]"
++dist_trunk,depth_um_z,-0.157,0.002,"[-0.25,-0.06]"
++dist_trunk,dist_trunk_um_z,-0.044,0.414,"[-0.15,+0.06]"

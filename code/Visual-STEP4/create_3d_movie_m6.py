@@ -5,12 +5,12 @@ from tqdm import tqdm
 import gc
 
 # === CONFIGURATION ===
-DATE = "2026-05-08"
-MOUSE = "rbp4_139_phpeb"
-RUN = "run6"
+DATE = "2026-02-17"
+MOUSE = "rbp4cre_138_phpeb"
+RUN = "run7"
 Y_CROP = 3
-FRAME_RATE = 5  # Hz
-SKIP_FIRST_SECONDS = 14.0  # drop first N seconds (laser warmup)
+FRAME_RATE = 6  # Hz
+SKIP_FIRST_SECONDS = 12.0  # drop first N seconds (laser warmup)
 CHUNK_DURATION = 120  # seconds per chunk
 
 # Cell selection options
@@ -22,10 +22,10 @@ SELECTED_CELLS = [
 
 
 # === PATHS ===
-BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/scape-data") / DATE / MOUSE / RUN
+BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025/data") / DATE / MOUSE / RUN
 MASK_FOLDER = BASE / "labelmaps_curated_dynamic"
 RAW_CLEAN_PATH = BASE / "preprocessed" / "raw_clean.tif"
-RAW_ORIG_PATH = BASE / "raw" / f"runA_{RUN}_{MOUSE}-reslice-bin.tif"
+RAW_ORIG_PATH = BASE / "raw" / f"runA_{RUN}_{MOUSE}-reslice-green.tif"
 RAW_STACK_PATH = RAW_CLEAN_PATH if RAW_CLEAN_PATH.exists() else RAW_ORIG_PATH
 
 def main():

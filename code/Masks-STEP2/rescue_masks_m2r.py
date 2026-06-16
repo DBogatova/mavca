@@ -31,7 +31,7 @@ from skimage.draw import line as draw_line
 # ===== CONFIG =====
 DATE = "2026-05-12"
 MOUSE = "rbp4_132_phpeb"
-RUN = "run5"
+RUN = "run9"
 
 VOXEL_SIZE = (3.9, 1.0, 1.2)  # Z, Y, X µm
 VOXEL_VOL = float(np.prod(VOXEL_SIZE))
@@ -41,18 +41,17 @@ EVENT_FILES = [
     "event_group_0000.tif",
     "event_group_0001.tif",
     "event_group_0002.tif",
-    "event_group_0004.tif",
+    "event_group_0003.tif",
     "event_group_0005.tif",
-    "event_group_0006.tif",
-    "event_group_0010.tif",
-    "event_group_0011.tif",
+    "event_group_0007.tif",
+    "event_group_0008.tif",
+    "event_group_0009.tif",
     "event_group_0012.tif",
     "event_group_0014.tif",
-    "event_group_0015.tif",
-    "event_group_0016.tif",
+    "event_group_0019.tif",
     "event_group_0023.tif",
-    "event_group_0024.tif",
     "event_group_0025.tif",
+    "event_group_0027.tif",
 ]
 
 # Seed line width (pixels around each drawn line)
