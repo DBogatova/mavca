@@ -17,10 +17,10 @@ Follow the installer prompts and accept the default settings. Once installed, op
 
 ### 2. Create the Conda Environment
 
-Create a new environment named `scape` with Python 3.11:
+Create a new environment named `env_name` with Python 3.11:
 
 ```bash
-conda create --name scape python=3.11
+conda create --name env_name python=3.11
 ```
 
 Activate it:
@@ -50,17 +50,14 @@ conda install numpy=2.2.5
 conda install opencv
 conda install pyqt=5.15
 ```
-
-> **Why conda for these?**
-> - **PyQt5** must be installed via conda to avoid conflicts with Qt libraries. `conda install pyqt=5.15` automatically includes all required components (`PyQt5-Qt5`, `PyQt5_sip`, and the Qt5 binaries) — no need to install those separately.
-> - **numpy** and **opencv** are installed via conda to ensure they link correctly against the conda environment's system libraries.
-
 ---
 
 ## Verify the Installation
 
-To confirm everything is set up correctly, run:
+To confirm everything is set up correctly, run the verification script from the repo root:
 
 ```bash
-python -c "import numpy; import cv2; import PyQt5; print('All packages imported successfully')"
+python verify_env.py
 ```
+
+This checks all key packages (numpy, opencv, PyQt5, napari, scipy, scikit-image, matplotlib, pandas, tifffile, imageio, tqdm, numba, dask, vispy) and prints each one's version. If any are missing, it lists them and exits with a non-zero code so you know exactly what to reinstall.
