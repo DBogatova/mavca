@@ -33,6 +33,7 @@ cheap when nothing changed. Full run from scratch: ~55 min for 20 runs on this M
 | combo | `combo_plot.py` | `figures/combo_auto.png/.pdf` (+ `combo_human` with `--source human`) |
 | movie | `make_movie.py` | `movies/<run>_dual_behavior.mp4` |
 | stats | `auto_stats.py` | `scape-auto/stats/{auto,human}/`, `scape-auto/stats/compare_auto_vs_human.*` |
+| coherence | `coherence_behavior.py` | `figures/coherence_<source>.png` per run; `scape-auto/stats/coherence/` |
 
 `run_auto.py` chains them; `auto_status.py` / `auto_gui.py` show where every run is.
 `scape_common.py` holds the shared paths, per-run parameters (frame rate, skip from
@@ -75,3 +76,11 @@ saves, `R` resets. Saving writes `masks/auto_labelmap_reviewed.tif` (older versi
 Human masks are not a complete ground truth: curators kept a subset of the active dendrites,
 so auto units without a human match are not automatically false positives. Look at
 `beyond_human.png` and the reliability numbers to judge them.
+
+## Ca vs behavior: correlation and coherence
+
+Pearson r is a poor measure for pupil: Ca transients are sharp and the pupil response is slow and
+smoothed, so a tight relation still gives a small r whose sign depends on slow drift.
+`coherence_behavior.py` measures magnitude-squared coherence (Welch, 25.6 s segments), which does not
+depend on waveform shape, against a circular-shift null in three bands (0.04-0.2, 0.2-0.5, 0.5-1 Hz).
+It also reports the lag from the cross-spectrum phase and a Ca-event-triggered pupil average.

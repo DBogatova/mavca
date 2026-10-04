@@ -53,7 +53,7 @@ case "${1:-panel}" in
     "$PY" "$CODE/review_napari.py" --run "$1" ;;
   stats)
     if [[ -f "$CODE/auto_stats.py" ]]; then
-      "$PY" "$CODE/auto_stats.py" --all
+      "$PY" "$CODE/auto_stats.py" --all && "$PY" "$CODE/coherence_behavior.py" --source both
     else
       echo "auto_stats.py not yet available"
       exit 1

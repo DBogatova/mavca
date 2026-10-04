@@ -175,6 +175,9 @@ def run_stats():
         return {"stage": "stats", "success": False, "error": "script not available"}
 
     cmd = [PYTHON, str(script_path), "--all"]
+    coh = HERE / "coherence_behavior.py"
+    if coh.exists():   # frequency-resolved Ca-behavior coupling (runs after the main statistics)
+        cmd = ["/bin/sh", "-c", f'"{PYTHON}" "{script_path}" --all && "{PYTHON}" "{coh}" --source both']
     log_file = LOG_DIR / "stats.log"
     LOG_DIR.mkdir(parents=True, exist_ok=True)
 

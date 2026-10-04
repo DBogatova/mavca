@@ -1,7 +1,7 @@
 {
   "name": "apical-dendrites-2025 automatic SCAPE pipeline (code/Auto/)",
   "started": "2026-10-03T23:06-04:00",
-  "last_update": "2026-10-04T14:40-04:00",
+  "last_update": "2026-10-04T15:05-04:00",
   "modeled_on": "/Users/daria/Desktop/femtonics-data/code/STEP7_workflow (panel, status, combo figure, movies) and code/STEP9_auto (automatic mirror tree, runner, paper stats)",
   "rules": [
     "scape-data/ is only read. Every output goes to scape-auto/<DATE>/<MOUSE>/<RUN>/ (gitignored). Verified at the end: `find scape-data -newer code/Auto/CHANGELOG_auto.json` prints nothing.",
@@ -21,7 +21,18 @@
     {
       "time": "2026-10-03T23:10-04:00",
       "what": "git: committed and pushed the pending apical-dendrites-2025 work to origin/main (963b633).",
-      "files": [".gitignore", ".kiro/steering/pipeline-context.md", "code/Behavior-Analysis/behavior_plots.py", "code/Preprocessing-STEP1/pre_segmentation_m1.5.py", "code/Traces-STEP3/concat_traces_m4.5.py", "code/Traces-STEP3/save_traces_m4.py", "code/Debug/audit_bestframe_offset.py", "code/Extra/bleach_correction/", "code/Masks-STEP2/add_absolute_event_frames.py", "code/Workflow/"],
+      "files": [
+        ".gitignore",
+        ".kiro/steering/pipeline-context.md",
+        "code/Behavior-Analysis/behavior_plots.py",
+        "code/Preprocessing-STEP1/pre_segmentation_m1.5.py",
+        "code/Traces-STEP3/concat_traces_m4.5.py",
+        "code/Traces-STEP3/save_traces_m4.py",
+        "code/Debug/audit_bestframe_offset.py",
+        "code/Extra/bleach_correction/",
+        "code/Masks-STEP2/add_absolute_event_frames.py",
+        "code/Workflow/"
+      ],
       "notes": "Remote github.com/DBogatova/dendrites (redirects to DBogatova/mavca). Stashes and the organoids / backup / ui-development branches left untouched."
     },
     {
@@ -38,22 +49,33 @@
       "time": "2026-10-04T01:00-03:00-04:00",
       "what": "auto_detect.py v2 (rewritten): activity volume (dF/F, spatial high-pass, robust z) -> activity map -> greedy seeded region growing on correlation with a reference trace -> merge of touching units with r > 0.85 -> size / depth-extent / horizontal-sheet filters.",
       "tuning": "Parameters tuned on 3 runs only (TRAIN_RUNS: 0508 run5, 0512 run5, 0331 run7). Hard shape filters (verticality, elongation) were tested and dropped: they removed 15-20% of human-matched units. Mask dilation tested and dropped: no recall gain, higher pairwise r.",
-      "files": ["code/Auto/auto_detect.py", "code/Auto/old/auto_detect_v1.0.0.py"]
+      "files": [
+        "code/Auto/auto_detect.py",
+        "code/Auto/old/auto_detect_v1.0.0.py"
+      ]
     },
     {
       "time": "2026-10-04T02:00-03:20-04:00",
       "what": "validate_vs_human.py v2 (rewritten): functional recall (overlap + trace r), spatial Hungarian P/R/F1 at IoU 0.1-0.5 (TP needs IoU >= threshold), signal recall (multiple R of the auto units inside a human mask), split-half reliability of every unit with its own local background shell and a shifted-mask null; overlay and 'beyond human' gallery.",
-      "files": ["code/Auto/validate_vs_human.py"]
+      "files": [
+        "code/Auto/validate_vs_human.py"
+      ]
     },
     {
       "time": "2026-10-04T02:20-02:45-04:00",
       "what": "make_movie.py v2 (rewritten in the style of run8-pupil-acc-mip-dual-view.mp4): top = reference volume (peak activity of the detected dendrites) + dynamic dF/F volume, MIP over Z with true um aspect, 100 um bar, clock; bottom = global Ca, pupil, accel (0-0.25) with a moving red cursor; 1920x1080 H.264, 2x real time. ~70 s per run. combo_plot.py v2 (rewritten): global Ca, heatmap of all dendrites, fraction active, top-10 traces, pupil/whisker/accel, dendrite map coloured by r with locomotion, correlation matrix, pairwise r vs circular-shift null, per-dendrite behavior r with BH-FDR, onset-triggered global Ca with bootstrap CI and shuffled-onset band.",
-      "files": ["code/Auto/make_movie.py", "code/Auto/combo_plot.py"]
+      "files": [
+        "code/Auto/make_movie.py",
+        "code/Auto/combo_plot.py"
+      ]
     },
     {
       "time": "2026-10-04T02:45-05:10-04:00",
       "what": "auto_stats.py v2 (rewritten). FOV is the unit of replication (runs sharing a FOV averaged before tests); per-dendrite mixed models with random intercept per FOV; behavior coupling at best lag +-3 s with a circular-shift null that repeats the lag search; onset-triggered averages; quiet vs moving; depth; same-FOV reproducibility; auto-vs-human comparison file.",
-      "files": ["code/Auto/auto_stats.py", "code/Auto/old/auto_stats_v1.py"]
+      "files": [
+        "code/Auto/auto_stats.py",
+        "code/Auto/old/auto_stats_v1.py"
+      ]
     },
     {
       "time": "2026-10-04T03:20-04:00",
@@ -63,7 +85,11 @@
       "time": "2026-10-04T04:20-05:10-04:00",
       "what": "FOV handling. (1) Runs of one FOV are each detected on their own (auto_labelmap_perrun.tif) and then share the union of their dendrites (auto_labelmap.tif). (2) FOV groups are found from the images (scape_common.session_fov_groups: high-passed mean images, r >= 0.75; same-FOV pairs 0.80-0.87, different FOVs 0.51-0.56), not only from MASK_SOURCE. (3) human_mask_home(): each human mask set is scored on every run of its session (split-half reliability) and used only on runs of the FOV it fits.",
       "finding": "IMPORTANT for the human pipeline: the 119 masks in scape-data/2026-04-16/rbp4_132_phpeb/run5/labelmaps_curated_dynamic (also used for run6 and run7 via MASK_SOURCE) fit run7 and run8 (split-half r 0.62 / 0.49) but not run5 / run6 (0.07 / 0.03 = noise; shifted-mask null ~0.04). The images agree: run7 vs run8 r = 0.86, run7 vs run5 r = 0.55 (= unrelated FOV). So the existing human traces for 2026-04-16 run5 and run6 were extracted with masks from another field of view, and run7 shares its FOV with run8 (never curated), not with run5. Also 0512 run9 and run10 image the same FOV (r >= 0.75) and run10's mask folder is identical to run9's. Nothing in scape-data or mavca_status.py was changed; the automatic pipeline excludes the mismatched pairs from every auto-vs-human comparison and from the human statistics.",
-      "files": ["code/Auto/scape_common.py", "scape-auto/fov_check.json", "scape-auto/human_mask_check.json"]
+      "files": [
+        "code/Auto/scape_common.py",
+        "scape-auto/fov_check.json",
+        "scape-auto/human_mask_check.json"
+      ]
     },
     {
       "time": "2026-10-04T03:07 - 13:15-04:00",
@@ -73,13 +99,49 @@
     {
       "time": "2026-10-04T13:20-14:30-04:00",
       "what": "Independent audit (separate agent, code/Auto/notes/auditor.json): AUDIT_PASSED, no high-severity issue. Verified: scape-data untouched; old Workflow selftest passes; trace and behavior share one clock; recall recomputed independently equals validation.json (0512 run5 52/68 = 0.765; 0416 run1 27/54 = 0.500); unmatched auto units look like dendrites; FOV is the replication unit; the 0416 mask-FOV finding is supported by the numbers. Low items fixed afterwards: auto_gui --help, combo panel I labels, a stale docstring number. The audit also found 62 tracked __pycache__ .pyc files deleted from the working tree (not by this pipeline); restored with git checkout."
+    },
+    {
+      "time": "2026-10-04T14:45-15:05-04:00",
+      "what": "coherence_behavior.py (new, user suggestion): coherence of global Ca and of every dendrite with pupil / whisker / accel (Welch 25.6 s segments, circular-shift null x200, BH-FDR, 3 bands), slow-band lag and sign from the cross-spectrum phase, Ca-event-triggered pupil (global vs local events). Added to `scape stats` and to the final step of run_auto.py.",
+      "files": [
+        "code/Auto/coherence_behavior.py",
+        "code/Auto/run_auto.py",
+        "code/scape",
+        "code/Auto/README.md"
+      ],
+      "outputs": [
+        "OUT/figures/coherence_{auto,human}.png",
+        "scape-auto/stats/coherence/{auto,human}/summary.txt",
+        "scape-auto/stats/coherence/compare_auto_vs_human.txt"
+      ],
+      "results": {
+        "pupil": "Global Ca is coherent with pupil in the slow band (0.04-0.2 Hz): +0.30 above null (auto, 17/18 runs p<0.05, p=0.008 over 8 FOVs; human +0.32, 14/15 runs) and in 0.2-0.5 Hz (+0.22), not above 0.5 Hz. Pupil lags global Ca by ~0.7 s and is in phase (positive) in 87-89% of runs. Ca-event-triggered pupil peaks ~1 s after global Ca events (+0.22 of the pupil range); local events give almost no pupil response. About 20% of dendrites are individually coherent with pupil, split ~60/40 (auto) and ~50/50 (human) between in-phase and anti-phase, which is why the mean dendrite-pupil correlation was small and of opposite sign in the two sets.",
+        "whisker_accel": "Coherent in all three bands (+0.21 to +0.34 for global Ca); Ca leads/coincides (whisker -0.1 s, accel -0.25 s: the movement signal comes slightly before or with the Ca).",
+        "agreement": "Auto and human dendrites give the same coherence conclusions (band values within 0.03).",
+        "caveats": "~7 Welch segments per run, so single-run coherence is noisy (handled by the null). The 1-4 s window for the triggered pupil was fixed before looking and misses part of the ~1 s peak (p=0.15 over FOVs); a peak-centred window would be post hoc. 2026-03-20 (third mouse) has no behavior, so the behavior results come from 2 mice."
+      }
     }
   ],
   "results": {
     "validation_auto_vs_human": {
       "definition": "home runs = the run each human mask set was drawn on / fits best (9 runs, 9 FOVs); other = runs that borrow those masks (8 runs, usually less active)",
-      "home_runs_median": {"n_auto": 229, "n_human": 62, "functional_recall_r>=0.7": 0.66, "recall_r>=0.5": 0.79, "median_best_trace_r": 0.80, "spatial_recall_IoU>=0.1": 0.69, "split_half_reliability_auto": 0.50, "split_half_reliability_human": 0.61, "shifted_mask_null": 0.08},
-      "borrowing_runs_median": {"functional_recall_r>=0.7": 0.35, "recall_r>=0.5": 0.60, "reliability_auto": 0.22, "reliability_human": 0.23},
+      "home_runs_median": {
+        "n_auto": 229,
+        "n_human": 62,
+        "functional_recall_r>=0.7": 0.66,
+        "recall_r>=0.5": 0.79,
+        "median_best_trace_r": 0.8,
+        "spatial_recall_IoU>=0.1": 0.69,
+        "split_half_reliability_auto": 0.5,
+        "split_half_reliability_human": 0.61,
+        "shifted_mask_null": 0.08
+      },
+      "borrowing_runs_median": {
+        "functional_recall_r>=0.7": 0.35,
+        "recall_r>=0.5": 0.6,
+        "reliability_auto": 0.22,
+        "reliability_human": 0.23
+      },
       "train_vs_heldout": "train runs (0508 run5, 0512 run5, 0331 run7) recall 0.57 / 0.77 / 0.43; held-out home runs 0.50-0.76 (0320 run1 0.58, run3 0.66, 0331 run8 0.73, 0416 run1 0.50, run7 0.76, 0512 run9 0.69). No sign of overfitting to the tuning runs.",
       "verdict": "The automatic detector finds about 2/3 of the human dendrites with matching traces (4/5 at r >= 0.5) and 3-4x more units in total. Units it adds beyond the human set are internally coherent (reliability ~0.5 vs noise ~0.08, human ~0.6), so most look like real dendrite segments the curators did not keep, but they are on average a little less clean than hand-picked ones. Spatial agreement with the human outlines is modest (human masks are drawn wider). It is not a voxel-for-voxel replacement of curation; it reaches the same scientific conclusions on the main questions (below), and it detected one curation error humans missed (0416 masks/FOV). 'Better than human' holds for coverage and for consistency across runs, not for per-mask cleanliness."
     },
