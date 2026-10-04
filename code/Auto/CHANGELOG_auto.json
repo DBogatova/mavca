@@ -1,7 +1,7 @@
 {
   "name": "apical-dendrites-2025 automatic SCAPE pipeline (code/Auto/)",
   "started": "2026-10-03T23:06-04:00",
-  "last_update": "2026-10-04T15:05-04:00",
+  "last_update": "2026-10-04T16:20-04:00",
   "modeled_on": "/Users/daria/Desktop/femtonics-data/code/STEP7_workflow (panel, status, combo figure, movies) and code/STEP9_auto (automatic mirror tree, runner, paper stats)",
   "rules": [
     "scape-data/ is only read. Every output goes to scape-auto/<DATE>/<MOUSE>/<RUN>/ (gitignored). Verified at the end: `find scape-data -newer code/Auto/CHANGELOG_auto.json` prints nothing.",
@@ -120,6 +120,37 @@
         "agreement": "Auto and human dendrites give the same coherence conclusions (band values within 0.03).",
         "caveats": "~7 Welch segments per run, so single-run coherence is noisy (handled by the null). The 1-4 s window for the triggered pupil was fixed before looking and misses part of the ~1 s peak (p=0.15 over FOVs); a peak-centred window would be post hoc. 2026-03-20 (third mouse) has no behavior, so the behavior results come from 2 mice."
       }
+    },
+    {
+      "time": "2026-10-04T15:00-16:20-04:00",
+      "what": "Independence test battery (user request: find unexpected dependencies/independencies of L5 apical dendrites). independence_tests.py (12 test families A-L, mine) + two exploratory scripts by independent agents: explore_dynamics.py (waveforms, isolated-event neighbourhood response, cross-refractoriness, onset precision, avalanche sizes, slow shared excitability) and explore_structure.py (same-column trunk candidates, depth bands, residual clusters, behavior-specific tuning with partial correlations, negative pairs, lateral gradients). All: circular-shift nulls, FOV as replication unit, run on auto and human sets.",
+      "files": [
+        "code/Auto/independence_tests.py",
+        "code/Auto/explore_dynamics.py",
+        "code/Auto/explore_structure.py"
+      ],
+      "outputs": [
+        "scape-auto/stats/independence/{auto,human}/summary.txt",
+        "scape-auto/stats/explore_dynamics/{auto,human}/summary.txt",
+        "scape-auto/stats/explore_structure/{auto,human}/summary.txt"
+      ],
+      "key_findings": [
+        "Population state is bimodal: 34% of frames have no active dendrite (1% expected) and >=10% co-active in 6% of frames (~0% expected); Fano of co-activity 11.5 vs 1.0 (human 3.8 vs 1.0). Not independent.",
+        "Coupling is synchronous (same 0.2 s frame; 0.39-0.51 of coupled onsets vs 0.10 null), not sequential: only 0.6% of pairs show lagged coupling; among those the deeper dendrite follows in 58-61% (p=0.01-0.03), apparent speed ~100 um/s.",
+        "No cross-refractoriness: other dendrites fire MORE (+26-51%) in the second after a dendrite's event. No competition.",
+        "Slow shared excitability: local (non-global) event rates co-fluctuate on ~15 s (+0.08 above null, 10/10 FOVs).",
+        "Residual structure after removing global Ca + behavior: 13-22% positive pairs beyond null, 6-12 residual PCs, modularity 0.31 vs 0.13-0.21 null, clusters spatially compact (human 128 vs 150 um, 12/17 runs).",
+        "Negative (anti-correlated) pairs 8-9% vs 2.5% expected, with opposite behavior tuning: an arousal-suppressed minority rather than mutual inhibition.",
+        "Two stable pupil populations: in-phase dendrites (more, superficial 73 um, 2.2 events/min, locomotion-coupled r=+0.12) vs anti-phase (deeper 104 um, 0.66/min, locomotion r~0); groups anti-correlated with each other; phase identity agrees 95% (auto) / 81% (human) across runs of the same FOV (50% chance).",
+        "Dendrite identity is stable across runs: locomotion coupling rho 0.70, event rate 0.33-0.41, global participation 0.33-0.57.",
+        "Gradient along depth: behavior coupling and global participation fall with depth (rho -0.2 to -0.25), event amplitude rises (+0.23), decay time shortens. Deep = larger, more autonomous events; superficial = state-tracking.",
+        "Behavior-specific tuning beyond shared arousal: ~22% of dendrites coupled to locomotion but not whisking (partial correlation); whisker coupling largely disappears in still frames.",
+        "Self-dynamics sub-Poisson: IEI CV 0.76-0.78, Fano 0.90 (regular firing / refractoriness), no facilitation or depression (amplitude vs interval rho 0).",
+        "Event-level mutual information adds little beyond Pearson (Jaccard 0.4; MI-only pairs 1-2%).",
+        "Same-column (same-trunk candidate) pairs are more coupled only in human masks (0.117 vs 0.047) not auto (0.037 vs 0.031): mask-definition dependent, exposed to optical crosstalk.",
+        "No discrete event-waveform classes (silhouette 0.17-0.27); no power-law avalanches (exponential sizes); no lateral (X) gradient."
+      ],
+      "caveats": "5 Hz (lags <0.2 s unresolved), ~106 s per run, 3 mice (2 with behavior), SCAPE crosstalk inflates <30 um coupling, auto over-segmentation splits dendrites (biases isolated-event analyses), human masks are a curated subset."
     }
   ],
   "results": {
