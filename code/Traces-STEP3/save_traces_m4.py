@@ -43,6 +43,16 @@ SMOOTH_SIGMA = 0.5  # for gaussian_filter1d
 SKIP_FIRST_SECONDS = 12  # skip initial transient for F0 baseline
 CHUNK_T = 120  # time frames per chunk for memory efficiency
 
+# Largest mask/stack difference along Y that is accepted and corrected.
+# M1 (find_events_m1.py) trims Y_CROP rows from the DEEP end of Y, so masks
+# drawn on M1 output are that many rows shorter than the raw stack read here.
+# Row 0 is the superficial end in both, so padding at the deep end realigns
+# them. Differences larger than this are not explained by Y_CROP and are
+# refused rather than silently reshaped -- a mask/stack misalignment produces
+# plausible-looking but wrong traces, which is exactly how the 2026-04-16
+# co-activation artefact went unnoticed. Keep in sync with M1's Y_CROP.
+MAX_Y_ADJUST = 3
+
 # ===== PATHS =====
 PROJECT_ROOT = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025")
 BASE = PROJECT_ROOT / "scape-data" / DATE / MOUSE / RUN
@@ -113,21 +123,50 @@ def load_masks_and_indices(mask_folder, Z, Y, X):
     """Load curated masks, adjust to (Z, Y, X), build core/shell and flatten indices."""
     mask_paths = sorted(Path(mask_folder).glob("dend_*.tif"))
     rois = []  # list of dicts per ROI
+    y_adjusted = []  # (name, mask_Y, stack_Y) for the summary below
     for path in mask_paths:
         name = path.stem.replace("_labelmap", "")
         m = tifffile.imread(path).astype(bool)
 
-        # Adjust to (Z, Y, X) - ΔF/F stack already has Y cropping applied
+        # ---- Shape validation ------------------------------------------
+        # Z and X must match the stack EXACTLY. The flat indices built below
+        # are computed from this mask's own shape but used to index the
+        # stack's flattened volume, so a Z or X mismatch reads the wrong
+        # voxels entirely -- silently, if the sizes happen to be compatible.
+        # This used to be a printed warning that execution ignored.
         mz, my, mx = m.shape
-        if mz != Z or mx != X:
-            print(f"[WARN] {name}: expected Z={Z}, X={X}, got (Z={mz},Y={my},X={mx})")
-        # Handle Y dimension mismatch
-        if my < Y:
-            pad_y = Y - my
-            m = np.pad(m, ((0,0),(0,pad_y),(0,0)), mode='constant')
-        elif my > Y:
-            crop_y = my - Y
-            m = m[:, :-crop_y, :]
+        if (mz, mx) != (Z, X):
+            raise ValueError(
+                f"{name}: mask Z/X does not match the stack.\n"
+                f"    mask  (Z,Y,X) = ({mz},{my},{mx})\n"
+                f"    stack (Z,Y,X) = ({Z},{Y},{X})\n"
+                f"  Masks must come from the same field of view as the stack.\n"
+                f"  Check MASK_SOURCE_RUN (currently {MASK_SOURCE_RUN!r}) and that\n"
+                f"  DATE/MOUSE/RUN point at the run these masks were drawn on."
+            )
+
+        # Y may differ by up to MAX_Y_ADJUST (see the note at that constant).
+        if my != Y:
+            if abs(my - Y) > MAX_Y_ADJUST:
+                raise ValueError(
+                    f"{name}: mask Y differs from the stack by {my - Y:+d} rows, "
+                    f"more than MAX_Y_ADJUST={MAX_Y_ADJUST}.\n"
+                    f"    mask  Y = {my}\n"
+                    f"    stack Y = {Y}\n"
+                    f"  A difference of Y_CROP rows is expected; this is not. Either\n"
+                    f"  these masks belong to a different run or a different\n"
+                    f"  preprocessing generation. Refusing to reshape, because doing\n"
+                    f"  so would misalign the mask against the volume by "
+                    f"{abs(my - Y)} rows\n"
+                    f"  and yield wrong traces without any error."
+                )
+            if my < Y:
+                m = np.pad(m, ((0, 0), (0, Y - my), (0, 0)), mode="constant")
+            else:
+                m = m[:, :Y, :]
+            y_adjusted.append((name, my, Y))
+
+        assert m.shape == (Z, Y, X), f"{name}: shape still {m.shape} after adjustment"
 
         if not m.any():
             print(f"[SKIP] {name}: empty mask after adjustment")
@@ -147,6 +186,24 @@ def load_masks_and_indices(mask_folder, Z, Y, X):
         core_idx = np.flatnonzero(core.ravel())
         shell_idx = np.flatnonzero(shell.ravel()) if shell.any() else np.array([], dtype=np.int64)
 
+        # ---- Invariants -------------------------------------------------
+        # The one-voxel gap between core and shell is the whole point of the
+        # core-shell scheme: without it the dendrite's own light, spread by the
+        # PSF, enters the background estimate and is subtracted from itself.
+        # Assert it holds rather than trusting the morphology.
+        assert not (core & shell).any(), (
+            f"{name}: core and shell overlap ({int((core & shell).sum())} voxels) -- "
+            f"the background gap has collapsed"
+        )
+        # Indices are used against the stack's flattened volume, so they must
+        # be addressable in it. A failure here means the shape checks above
+        # were bypassed.
+        n_vox = Z * Y * X
+        assert core_idx.size == 0 or int(core_idx.max()) < n_vox, \
+            f"{name}: core index {int(core_idx.max())} out of range for {n_vox} voxels"
+        assert shell_idx.size == 0 or int(shell_idx.max()) < n_vox, \
+            f"{name}: shell index {int(shell_idx.max())} out of range for {n_vox} voxels"
+
         rois.append({
             "name": name,
             "mask": m,  # keep for preview
@@ -154,6 +211,19 @@ def load_masks_and_indices(mask_folder, Z, Y, X):
             "shell_idx": shell_idx,
         })
         del m, core, shell
+    if y_adjusted:
+        n = len(y_adjusted)
+        my0, y0 = y_adjusted[0][1], y_adjusted[0][2]
+        same = all((a[1], a[2]) == (my0, y0) for a in y_adjusted)
+        if same:
+            print(f"[INFO] realigned Y for {n}/{len(mask_paths)} mask(s): "
+                  f"{my0} -> {y0} rows (deep end; expected from M1 Y_CROP)")
+        else:
+            print(f"[INFO] realigned Y for {n}/{len(mask_paths)} mask(s), mixed sizes:")
+            for name, a, b in y_adjusted:
+                print(f"         {name}: {a} -> {b}")
+            print("       Mixed mask heights in one folder usually means the set was "
+                  "curated across two preprocessing generations -- worth checking.")
     return rois
 
 

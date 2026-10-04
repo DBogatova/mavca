@@ -201,17 +201,51 @@ def load_behavior_data():
 
     time = np.arange(n) / 10.0
 
-    # Compute Basler-to-SCAPE offset from trigger CSV
-    trigger_csvs = list((BASE / "trigger").glob("*_trigger.csv"))
-    if trigger_csvs:
-        trig = pd.read_csv(trigger_csvs[0])
-        basler_start = trig.loc[trig['baslerExposureTrigger'].diff() == 1, 'time_s'].iloc[0]
-        andor_start = trig.loc[trig['AndorXylaTrigger'].diff() == 1, 'time_s'].iloc[0]
-        offset = andor_start - basler_start
-        print(f"  Basler→SCAPE offset = {offset:.3f}s")
-    else:
-        offset = 0.0
-        print("  No trigger CSV, assuming no Basler offset")
+    # ---- camera-clock -> imaging-clock offset -----------------------------
+    # `time` above is built from FRAME INDEX (np.arange(n)/10), i.e. the CAMERA
+    # clock, which starts before the imaging trigger fires. The accelerometer,
+    # by contrast, is read on aligned_time_s and is already imaging-referenced.
+    # This offset is what puts the two on a common axis, so it must be applied.
+    #
+    # PREFERRED SOURCE: this run's own .mat, which stores the per-frame aligned
+    # timestamps written by the behaviour pipeline. Then, exactly,
+    #     offset = -aligned_time_s[0]
+    #
+    # Why not glob a trigger CSV: BASE/trigger can hold one *_trigger.csv PER
+    # RUN (the femtonics-data layout has no per-run directory level), so
+    # glob()[0] may pick a DIFFERENT run and return that run's offset. Measured
+    # within-session spread reaches 6.8 s (rbp4_141_phpeb 26-06-17: 0.640 to
+    # 7.474 s), which would silently misalign pupil/whisking against Ca and the
+    # accelerometer. The .mat value is unambiguous and per-run.
+    offset = None
+    try:
+        _at = mat_data['settings']['aligned_time_s'][0][0].ravel()
+        if _at.size:
+            offset = float(-_at[0])
+            print(f"  camera->imaging offset = {offset:.3f}s "
+                  f"(from .mat settings.aligned_time_s)")
+    except Exception:
+        offset = None
+
+    if offset is None:
+        # Fallback for .mat files predating settings.aligned_time_s (e.g. the
+        # older SCAPE runs under scape-data). Preserves the previous behaviour,
+        # but warns when the glob is ambiguous instead of silently guessing.
+        trigger_csvs = list((BASE / "trigger").glob("*_trigger.csv"))
+        if trigger_csvs:
+            if len(trigger_csvs) > 1:
+                print(f"  WARNING: {len(trigger_csvs)} trigger CSVs in "
+                      f"{BASE / 'trigger'}; using {trigger_csvs[0].name}. "
+                      f"The offset may belong to a different run.")
+            trig = pd.read_csv(trigger_csvs[0])
+            basler_start = trig.loc[trig['baslerExposureTrigger'].diff() == 1, 'time_s'].iloc[0]
+            andor_start = trig.loc[trig['AndorXylaTrigger'].diff() == 1, 'time_s'].iloc[0]
+            offset = andor_start - basler_start
+            print(f"  camera->imaging offset = {offset:.3f}s "
+                  f"(from {trigger_csvs[0].name})")
+        else:
+            offset = 0.0
+            print("  No .mat timestamps and no trigger CSV; assuming zero offset")
 
     if not APPLY_PUPIL_TRIGGER_OFFSET:
         offset = 0.0

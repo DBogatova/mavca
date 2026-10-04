@@ -43,6 +43,15 @@ ARTIFACT_Z = -0.5
 SMOOTH_SIGMA = 0.5
 CHUNK_T = 100
 
+# Largest mask/stack difference along Y that is accepted and corrected.
+# M1 trims Y_CROP rows from the DEEP end of Y, so masks drawn on M1 output are
+# that many rows shorter than the raw stack read here; row 0 is the superficial
+# end in both, so padding at the deep end realigns them. Anything larger is not
+# explained by Y_CROP and is refused rather than silently reshaped, because a
+# misaligned mask yields plausible-looking but wrong traces.
+# Keep in sync with M1's Y_CROP and with save_traces_m4.py.
+MAX_Y_ADJUST = 3
+
 # ===== PATHS =====
 PROJECT_ROOT = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025")
 BASE = PROJECT_ROOT / "scape-data" / DATE / MOUSE
@@ -70,20 +79,54 @@ def load_masks(Z, Y, X):
     """Load curated masks, build core/shell indices."""
     mask_paths = sorted(MASK_FOLDER.glob("dend_*.tif"))
     rois = []
+    y_adjusted = []
     for path in mask_paths:
         name = path.stem.replace("_labelmap", "")
         m = tifffile.imread(path).astype(bool)
         mz, my, mx = m.shape
-        if my < Y:
-            m = np.pad(m, ((0,0),(0,Y-my),(0,0)), mode='constant')
-        elif my > Y:
-            m = m[:, :Y, :]
+
+        # ---- Shape validation (mirrors save_traces_m4.py) ---------------
+        # Z and X must match exactly: the flat indices below are built from
+        # this mask's own shape but index the stack's flattened volume, so a
+        # mismatch silently reads the wrong voxels. This file previously had
+        # no shape check at all.
+        if (mz, mx) != (Z, X):
+            raise ValueError(
+                f"{name}: mask Z/X does not match the stack.\n"
+                f"    mask  (Z,Y,X) = ({mz},{my},{mx})\n"
+                f"    stack (Z,Y,X) = ({Z},{Y},{X})\n"
+                f"  These masks are not from this field of view. Check MASK_RUN "
+                f"(currently {MASK_RUN!r})\n"
+                f"  and that every run in RUNS shares that field of view."
+            )
+        if my != Y:
+            if abs(my - Y) > MAX_Y_ADJUST:
+                raise ValueError(
+                    f"{name}: mask Y differs from the stack by {my - Y:+d} rows, "
+                    f"more than MAX_Y_ADJUST={MAX_Y_ADJUST}.\n"
+                    f"    mask Y = {my}, stack Y = {Y}\n"
+                    f"  Refusing to reshape: it would misalign the mask against the "
+                    f"volume\n  and yield wrong traces silently."
+                )
+            if my < Y:
+                m = np.pad(m, ((0,0),(0,Y-my),(0,0)), mode='constant')
+            else:
+                m = m[:, :Y, :]
+            y_adjusted.append(name)
+
+        assert m.shape == (Z, Y, X), f"{name}: shape still {m.shape} after adjustment"
+
         if not m.any():
             continue
         core = binary_erosion(m, structure=ball(1))
         if not core.any():
             core = m.copy()
         shell = binary_dilation(m, structure=ball(3)) & ~binary_dilation(m, structure=ball(2))
+
+        # The one-voxel gap must survive; without it the dendrite's own PSF
+        # tail enters the background estimate and is subtracted from itself.
+        assert not (core & shell).any(), f"{name}: core and shell overlap"
+
         rois.append({
             "name": name,
             "mask": m,
@@ -91,6 +134,9 @@ def load_masks(Z, Y, X):
             "shell_idx": np.flatnonzero(shell.ravel()) if shell.any() else np.array([], dtype=np.int64),
         })
         del m, core, shell
+    if y_adjusted:
+        print(f"[INFO] realigned Y for {len(y_adjusted)}/{len(mask_paths)} mask(s) "
+              f"(deep end; expected from M1 Y_CROP)")
     return rois
 
 

@@ -19,6 +19,19 @@ M1 (find_events_m1) → M1.5 (pre_segmentation) → M2 (auto_mask) → M2b (spli
 M3 (filter_selected_masks, curation) → M4 (save_traces) → M5 analysis.
 Config (DATE/MOUSE/RUN) is hardcoded at the top of each script.
 
+## Workflow driver (added 2026-09-25, code/Workflow/) — PREFER THIS over hand-editing headers
+- `mavca_status.py` — disk-driven stage table for every run under scape-data/; `--next`
+  prints the one run to act on + exact command; `--next --run-it` executes it.
+- `mavca_gui.py` — Qt button panel over it (`--selftest` = headless check).
+- `run_stage.py SCRIPT --date D --mouse M --run R [--set NAME=VAL] [--raw-prefix runA|runB]`
+  rewrites a script's header constants IN MEMORY and runs the unmodified file. Generalises
+  run_m4_batch.py to every M-script. `--show` = dry run.
+- Per-run params (5 vs 6 Hz, 12 vs 14 s skip, MASK_SOURCE_RUN, runA_/runB_) are in
+  `SESSION_PARAMS` / `MASK_SOURCE` in mavca_status.py, cited to this file. A session not
+  listed there is shown in orange and REFUSED by the panel. Add new sessions there first.
+- `STALE-OWN-MASKS` flag: 0416 run2/run3 still hold 80 local curated masks but their traces
+  use run1's 54 (post 2026-06-04 fix). Those local folders are dead weight.
+
 ## Key conventions & decisions (agreed during curation)
 - **F0 baseline = 10th percentile** everywhere (M4 and M4.5). Not 20th.
 - **Background shell = `dilation(ball(3)) & ~dilation(ball(2))`** (1-voxel gap) in both

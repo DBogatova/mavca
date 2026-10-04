@@ -4,3 +4,6 @@ femtonics
 scape-data
 Pupil-Whisker-Acc
 corr_maps
+
+# regenerated on every run of code/Workflow/mavca_status.py
+processing_status.csv

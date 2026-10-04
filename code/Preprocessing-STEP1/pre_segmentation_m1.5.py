@@ -41,8 +41,24 @@ BASE = Path("/Users/daria/Desktop/Boston_University/Devor_Lab/"
 DFF_STACK_PATH = BASE / "raw" / f"runA_{RUN}_{MOUSE}-reslice-bin-dff.tif"
 # Raw 4D stack (T, Z, Y, X) — used for SAVING 3D best frames
 RAW_4D_PATH = BASE / "raw" / f"runA_{RUN}_{MOUSE}-reslice-bin.tif"
-# How many seconds M1 skipped (event_groups.csv indices are relative to trimmed stack)
-M1_SKIP_SECONDS = 14.0  # set to match find_events_m1.py SKIP_FIRST_SECONDS
+# How many seconds M1 skipped (event_groups.csv indices are relative to the
+# TRIMMED stack, while this script indexes the UNTRIMMED raw 4D stack).
+#
+# This is now DERIVED from the stacks on disk rather than typed in, because
+# duplicating M1's SKIP_FIRST_SECONDS here was a silent-failure trap: the two
+# constants drifted apart and the best frames for 2026-05-12 run5 and run9 were
+# sampled 10 frames (2 s) after the events M1 actually detected. The offset is
+# also genuinely per-run, not per-date -- on 2026-05-12, run6 used 14 s while
+# run5 and run9 used 12 s -- so no single hardcoded value can be right.
+#
+# Leave as None to derive automatically:
+#     skip_offset = T(raw 4D stack) - T(preprocessed/stack_voxel_norm_mean_sub)
+# Set to a float only to override derivation (e.g. if the preprocessed stack is
+# unavailable); it is then interpreted as seconds, as before.
+M1_SKIP_SECONDS = None
+
+# Stack M1 wrote, used to derive the offset above.
+NORM_STACK_PATH = BASE / "preprocessed" / "stack_voxel_norm_mean_sub.tif"
 # Fallback: event crops from M1
 EVENT_FOLDER = BASE / "preprocessed" / "event_crops"
 EVENT_GROUPS_CSV = BASE / "preprocessed" / "event_groups.csv"
@@ -81,6 +97,75 @@ PNG_DPI = 200
 # =========================
 # Helpers
 # =========================
+def _n_frames(path: Path):
+    """Number of time points in a TIFF series, without loading pixel data."""
+    try:
+        with tifffile.TiffFile(str(path)) as tf:
+            shape = tf.series[0].shape
+    except Exception:
+        return None
+    return int(shape[0]) if len(shape) >= 3 else None
+
+
+def resolve_skip_offset():
+    """
+    Frames to add to event_groups.csv indices to reach raw-stack indices.
+
+    M1 trims SKIP_FIRST_SECONDS from the front of the stack it reads and writes
+    stack_voxel_norm_mean_sub.tif, so the number of frames it dropped is simply
+    the difference in length. Deriving it removes the need to keep a copy of
+    M1's constant in sync with M1.
+
+    Raises RuntimeError rather than guessing, because a wrong offset produces
+    plausible-looking best frames taken from the wrong moment in the recording.
+    """
+    # Explicit override wins, but say so loudly.
+    if M1_SKIP_SECONDS is not None:
+        off = int(M1_SKIP_SECONDS * FS_HZ)
+        print(f"Frame offset: +{off} frames "
+              f"(MANUAL override M1_SKIP_SECONDS={M1_SKIP_SECONDS}s at {FS_HZ}Hz)")
+        return off
+
+    # M1 reads raw_clean.tif when it exists, otherwise the original raw stack.
+    raw_clean = BASE / "preprocessed" / "raw_clean.tif"
+    if raw_clean.exists():
+        raise RuntimeError(
+            f"Cannot derive the frame offset for this run.\n"
+            f"  {raw_clean} exists, so M1 indexed the motion-cleaned stack while\n"
+            f"  this script indexes {RAW_4D_PATH.name}. Removed motion frames mean the\n"
+            f"  two are not related by a constant offset, so event_groups.csv indices\n"
+            f"  cannot be mapped onto the raw stack by adding a number.\n"
+            f"  Either point RAW_4D_PATH at raw_clean.tif, or re-run M1 on the raw\n"
+            f"  stack, or set M1_SKIP_SECONDS explicitly if you know the mapping holds."
+        )
+
+    if not NORM_STACK_PATH.exists():
+        raise RuntimeError(
+            f"Cannot derive the frame offset: {NORM_STACK_PATH} not found.\n"
+            f"  Run M1 (find_events_m1.py) first, or set M1_SKIP_SECONDS explicitly."
+        )
+
+    t_raw = _n_frames(RAW_4D_PATH)
+    t_norm = _n_frames(NORM_STACK_PATH)
+    if t_raw is None or t_norm is None:
+        raise RuntimeError(
+            f"Cannot read frame counts (raw={t_raw}, norm={t_norm}).\n"
+            f"  Set M1_SKIP_SECONDS explicitly to bypass derivation."
+        )
+
+    off = t_raw - t_norm
+    if off < 0:
+        raise RuntimeError(
+            f"Derived a negative frame offset ({off}): the preprocessed stack has MORE\n"
+            f"  frames ({t_norm}) than the raw stack ({t_raw}). These two files do not\n"
+            f"  belong to the same run."
+        )
+
+    print(f"Frame offset: +{off} frames ({off / FS_HZ:.1f}s at {FS_HZ}Hz), "
+          f"derived from {t_raw} raw - {t_norm} preprocessed frames")
+    return off
+
+
 def mip_z(vol_zyx):
     """Z-MIP, optionally restricted to top Z planes."""
     v = vol_zyx
@@ -144,7 +229,7 @@ def select_topk_with_spacing(n_frames, scores, k, min_sep):
 # MAIN
 # =========================
 def main():
-    skip_offset = int(M1_SKIP_SECONDS * FS_HZ)
+    skip_offset = resolve_skip_offset()
 
     # --- Load ΔF/F MIP (T, Y, X) for scoring ---
     if DFF_STACK_PATH.exists():
@@ -198,8 +283,7 @@ def main():
 
     print(f"Output: {OUT_FOLDER}")
     print(f"TOP_K={TOP_K}, MIN_SEP={MIN_SEP}")
-    if skip_offset > 0:
-        print(f"Frame offset: +{skip_offset} (M1 skipped {M1_SKIP_SECONDS}s)")
+    # (the frame offset is reported by resolve_skip_offset() above)
 
     # --- Process each event ---
     for ev in events:
