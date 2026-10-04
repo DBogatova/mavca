@@ -1,0 +1,67 @@
+#!/bin/bash
+# scape - launch the SCAPE Auto Pipeline control panel (or a tool).
+#
+#   scape                      open the control panel
+#   scape status               print the run table (no GUI)
+#   scape next                 print the next step
+#   scape run [--all|KEY]      run the pipeline (all stages for all or specific run)
+#   scape run --stages S1 S2   run specific stages
+#   scape review KEY           open the napari mask review tool
+#   scape stats                run cohort statistics
+#   scape help                 show this help
+#
+# Everything runs from the project root with the project virtualenv.
+# Log of the last panel session: /tmp/scape_gui.log
+set -euo pipefail
+
+ROOT="/Users/daria/Desktop/Boston_University/Devor_Lab/apical-dendrites-2025"
+PY="$ROOT/.venv311/bin/python"
+CODE="$ROOT/code/Auto"
+cd "$ROOT"
+
+case "${1:-panel}" in
+  panel)
+    if pgrep -f "auto_gui.py" > /dev/null 2>&1; then
+      echo "control panel is already running - bringing it to front"
+      osascript -e 'tell application "System Events" to set frontmost of (first process whose name contains "python") to true' 2>/dev/null || true
+    else
+      nohup "$PY" "$CODE/auto_gui.py" > /tmp/scape_gui.log 2>&1 &
+      echo "control panel launched (log: /tmp/scape_gui.log)"
+    fi ;;
+  status)
+    shift || true
+    "$PY" "$CODE/auto_status.py" "$@" ;;
+  next)
+    "$PY" "$CODE/auto_status.py" --next ;;
+  run)
+    shift
+    if [[ "${1:-}" == "--all" ]]; then
+      shift
+      "$PY" "$CODE/run_auto.py" --all "$@"
+    elif [[ -n "${1:-}" ]]; then
+      "$PY" "$CODE/run_auto.py" --run "$@"
+    else
+      echo "usage: scape run --all | scape run KEY [--stages S1 S2] [--force]"
+      exit 1
+    fi ;;
+  review)
+    shift
+    if [[ -z "${1:-}" ]]; then
+      echo "usage: scape review DATE/MOUSE/RUN"
+      exit 1
+    fi
+    "$PY" "$CODE/review_napari.py" --run "$1" ;;
+  stats)
+    if [[ -f "$CODE/auto_stats.py" ]]; then
+      "$PY" "$CODE/auto_stats.py" --all
+    else
+      echo "auto_stats.py not yet available"
+      exit 1
+    fi ;;
+  -h|--help|help)
+    sed -n '2,12p' "$0" ;;
+  *)
+    echo "unknown command: $1"
+    sed -n '2,12p' "$0"
+    exit 1 ;;
+esac

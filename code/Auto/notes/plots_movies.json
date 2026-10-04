@@ -1,0 +1,882 @@
+[
+  {
+    "time": "2026-10-03 23:17:40",
+    "what": "global_ca.py: processed 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run7/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-03 23:18:05",
+    "what": "global_ca.py: processed 2 runs (2 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-03-20/rbp4cre_139_phpeb/run1/traces/global_ca.csv",
+      "scape-auto/2026-05-08/rbp4_139_phpeb/run5/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-03 23:18:14",
+    "what": "combo_plot.py: processed 3 runs (source=human, 3 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run7/figures/combo_human.png",
+      "scape-auto/2026-03-20/rbp4cre_139_phpeb/run1/figures/combo_human.png",
+      "scape-auto/2026-05-08/rbp4_139_phpeb/run5/figures/combo_human.png"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-03 23:19:45",
+    "what": "make_movie.py: processed 1 runs (speed=2.0x, 1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run7/movies/run7_dual_behavior.mp4"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-03 23:24:49",
+    "what": "global_ca.py: 20 runs (20 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-03-20/rbp4cre_139_phpeb/run1/traces/global_ca.csv",
+      "scape-auto/2026-03-20/rbp4cre_139_phpeb/run3/traces/global_ca.csv",
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run6/traces/global_ca.csv",
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run7/traces/global_ca.csv",
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run8/traces/global_ca.csv",
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run9/traces/global_ca.csv",
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run10/traces/global_ca.csv",
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run1/traces/global_ca.csv",
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run2/traces/global_ca.csv",
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run3/traces/global_ca.csv",
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run5/traces/global_ca.csv",
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run6/traces/global_ca.csv",
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run7/traces/global_ca.csv",
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run8/traces/global_ca.csv",
+      "scape-auto/2026-05-08/rbp4_139_phpeb/run5/traces/global_ca.csv",
+      "scape-auto/2026-05-08/rbp4_139_phpeb/run6/traces/global_ca.csv",
+      "scape-auto/2026-05-12/rbp4_132_phpeb/run5/traces/global_ca.csv",
+      "scape-auto/2026-05-12/rbp4_132_phpeb/run6/traces/global_ca.csv",
+      "scape-auto/2026-05-12/rbp4_132_phpeb/run9/traces/global_ca.csv",
+      "scape-auto/2026-05-12/rbp4_132_phpeb/run10/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-03 23:25:15",
+    "what": "combo_plot.py: 20 runs (source=human, 19 ok, 1 failed)",
+    "files": [
+      "scape-auto/2026-03-20/rbp4cre_139_phpeb/run1/figures/combo_human.png",
+      "scape-auto/2026-03-20/rbp4cre_139_phpeb/run3/figures/combo_human.png",
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run6/figures/combo_human.png",
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run7/figures/combo_human.png",
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run8/figures/combo_human.png",
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run9/figures/combo_human.png",
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run10/figures/combo_human.png",
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run1/figures/combo_human.png",
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run2/figures/combo_human.png",
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run3/figures/combo_human.png",
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run5/figures/combo_human.png",
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run6/figures/combo_human.png",
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run7/figures/combo_human.png",
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run8/figures/combo_human.png",
+      "scape-auto/2026-05-08/rbp4_139_phpeb/run5/figures/combo_human.png",
+      "scape-auto/2026-05-08/rbp4_139_phpeb/run6/figures/combo_human.png",
+      "scape-auto/2026-05-12/rbp4_132_phpeb/run5/figures/combo_human.png",
+      "scape-auto/2026-05-12/rbp4_132_phpeb/run6/figures/combo_human.png",
+      "scape-auto/2026-05-12/rbp4_132_phpeb/run9/figures/combo_human.png",
+      "scape-auto/2026-05-12/rbp4_132_phpeb/run10/figures/combo_human.png"
+    ],
+    "verified": false,
+    "caveats": "1 runs failed"
+  },
+  {
+    "time": "2026-10-03 23:26:10",
+    "what": "make_movie.py: 1 runs (speed=2.0x, 1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-03-20/rbp4cre_139_phpeb/run1/movies/run1_dual_behavior.mp4"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-03 23:36:29",
+    "what": "make_movie.py: 20 runs (speed=2.0x, 20 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-03-20/rbp4cre_139_phpeb/run1/movies/run1_dual_behavior.mp4",
+      "scape-auto/2026-03-20/rbp4cre_139_phpeb/run3/movies/run3_dual_behavior.mp4",
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run6/movies/run6_dual_behavior.mp4",
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run7/movies/run7_dual_behavior.mp4",
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run8/movies/run8_dual_behavior.mp4",
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run9/movies/run9_dual_behavior.mp4",
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run10/movies/run10_dual_behavior.mp4",
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run1/movies/run1_dual_behavior.mp4",
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run2/movies/run2_dual_behavior.mp4",
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run3/movies/run3_dual_behavior.mp4",
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run5/movies/run5_dual_behavior.mp4",
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run6/movies/run6_dual_behavior.mp4",
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run7/movies/run7_dual_behavior.mp4",
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run8/movies/run8_dual_behavior.mp4",
+      "scape-auto/2026-05-08/rbp4_139_phpeb/run5/movies/run5_dual_behavior.mp4",
+      "scape-auto/2026-05-08/rbp4_139_phpeb/run6/movies/run6_dual_behavior.mp4",
+      "scape-auto/2026-05-12/rbp4_132_phpeb/run5/movies/run5_dual_behavior.mp4",
+      "scape-auto/2026-05-12/rbp4_132_phpeb/run6/movies/run6_dual_behavior.mp4",
+      "scape-auto/2026-05-12/rbp4_132_phpeb/run9/movies/run9_dual_behavior.mp4",
+      "scape-auto/2026-05-12/rbp4_132_phpeb/run10/movies/run10_dual_behavior.mp4"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-03 23:50:44",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run7/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-03 23:50:46",
+    "what": "combo_plot.py: 1 runs (source=auto, 1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run7/figures/combo_auto.png"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-03 23:51:43",
+    "what": "make_movie.py: 1 runs (speed=2.0x, 1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run7/movies/run7_dual_behavior.mp4"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-03 23:52:40",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-05-08/rbp4_139_phpeb/run5/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-03 23:52:42",
+    "what": "combo_plot.py: 1 runs (source=auto, 1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-05-08/rbp4_139_phpeb/run5/figures/combo_auto.png"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-03 23:53:39",
+    "what": "make_movie.py: 1 runs (speed=2.0x, 1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-05-08/rbp4_139_phpeb/run5/movies/run5_dual_behavior.mp4"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-03 23:57:20",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run8/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-03 23:57:22",
+    "what": "combo_plot.py: 1 runs (source=auto, 1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run8/figures/combo_auto.png"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-03 23:58:21",
+    "what": "make_movie.py: 1 runs (speed=2.0x, 1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run8/movies/run8_dual_behavior.mp4"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 00:02:47",
+    "what": "combo_plot.py: 20 runs (source=auto, 20 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-03-20/rbp4cre_139_phpeb/run1/figures/combo_auto.png",
+      "scape-auto/2026-03-20/rbp4cre_139_phpeb/run3/figures/combo_auto.png",
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run6/figures/combo_auto.png",
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run7/figures/combo_auto.png",
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run8/figures/combo_auto.png",
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run9/figures/combo_auto.png",
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run10/figures/combo_auto.png",
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run1/figures/combo_auto.png",
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run2/figures/combo_auto.png",
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run3/figures/combo_auto.png",
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run5/figures/combo_auto.png",
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run6/figures/combo_auto.png",
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run7/figures/combo_auto.png",
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run8/figures/combo_auto.png",
+      "scape-auto/2026-05-08/rbp4_139_phpeb/run5/figures/combo_auto.png",
+      "scape-auto/2026-05-08/rbp4_139_phpeb/run6/figures/combo_auto.png",
+      "scape-auto/2026-05-12/rbp4_132_phpeb/run5/figures/combo_auto.png",
+      "scape-auto/2026-05-12/rbp4_132_phpeb/run6/figures/combo_auto.png",
+      "scape-auto/2026-05-12/rbp4_132_phpeb/run9/figures/combo_auto.png",
+      "scape-auto/2026-05-12/rbp4_132_phpeb/run10/figures/combo_auto.png"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 03:11:11",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-03-20/rbp4cre_139_phpeb/run1/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 03:11:57",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-03-20/rbp4cre_139_phpeb/run3/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 03:16:19",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run6/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 03:17:15",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run7/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 03:22:43",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run9/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 03:23:16",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run8/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 03:28:00",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run10/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 03:29:18",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run1/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 03:32:58",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run2/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 03:33:48",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run3/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 03:38:37",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run5/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 03:39:12",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run6/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 03:44:19",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run8/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 03:44:55",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run7/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 03:49:34",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-05-08/rbp4_139_phpeb/run6/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 03:49:47",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-05-08/rbp4_139_phpeb/run5/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 03:52:53",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-05-12/rbp4_132_phpeb/run6/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 03:55:09",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-05-12/rbp4_132_phpeb/run5/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 03:59:04",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-05-12/rbp4_132_phpeb/run9/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 04:00:44",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-05-12/rbp4_132_phpeb/run10/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 04:08:53",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-03-20/rbp4cre_139_phpeb/run1/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 04:09:38",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-03-20/rbp4cre_139_phpeb/run3/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 04:11:41",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run6/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 04:13:00",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run9/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 04:15:35",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run10/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 04:16:07",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run2/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 04:18:42",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run3/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 04:18:54",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run6/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 04:21:30",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run7/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 04:21:50",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-05-08/rbp4_139_phpeb/run6/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 04:24:30",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-05-12/rbp4_132_phpeb/run6/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 04:26:22",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-03-20/rbp4cre_139_phpeb/run1/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 04:26:22",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-03-20/rbp4cre_139_phpeb/run3/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 04:28:14",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run6/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 04:28:14",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run7/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 04:32:23",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run8/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 04:32:23",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run9/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 04:35:53",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run1/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 04:36:31",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run10/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 04:39:21",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run2/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 04:40:00",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run3/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 04:43:25",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run5/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 04:44:03",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run6/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 04:45:19",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run8/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 04:47:10",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-05-08/rbp4_139_phpeb/run5/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 04:47:29",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run7/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 04:50:08",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-05-08/rbp4_139_phpeb/run6/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 04:51:01",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-05-12/rbp4_132_phpeb/run5/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 04:52:16",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-05-12/rbp4_132_phpeb/run9/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 04:52:23",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-05-12/rbp4_132_phpeb/run10/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 04:53:36",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-05-12/rbp4_132_phpeb/run6/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 05:08:21",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-03-20/rbp4cre_139_phpeb/run1/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 05:08:22",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-03-20/rbp4cre_139_phpeb/run3/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 05:08:39",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run6/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 05:08:41",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run7/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 05:09:02",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run8/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 05:09:04",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run9/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 05:09:25",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run1/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 05:09:25",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-03-31/rbp4_132_phpeb/run10/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 05:09:46",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run2/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 05:09:46",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run3/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 05:11:41",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run5/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 05:11:41",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run6/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 05:14:43",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run8/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 05:15:31",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-04-16/rbp4_132_phpeb/run7/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 05:16:09",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-05-08/rbp4_139_phpeb/run5/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 05:16:27",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-05-08/rbp4_139_phpeb/run6/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 05:16:47",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-05-12/rbp4_132_phpeb/run5/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 05:16:58",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-05-12/rbp4_132_phpeb/run6/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 05:19:27",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-05-12/rbp4_132_phpeb/run9/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  },
+  {
+    "time": "2026-10-04 05:19:38",
+    "what": "global_ca.py: 1 runs (1 ok, 0 failed)",
+    "files": [
+      "scape-auto/2026-05-12/rbp4_132_phpeb/run10/traces/global_ca.csv"
+    ],
+    "verified": true,
+    "caveats": null
+  }
+]

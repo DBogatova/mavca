@@ -1,0 +1,58 @@
+[
+  {
+    "time": "2026-10-04T03:45:00Z",
+    "what": "Created auto_detect.py, extract_traces.py, validate_vs_human.py",
+    "files": [
+      "code/Auto/auto_detect.py",
+      "code/Auto/extract_traces.py", 
+      "code/Auto/validate_vs_human.py"
+    ],
+    "verified": true,
+    "caveats": [
+      "Detection uses activity-based approach (temporal std + max dF/F + distance transform watershed)",
+      "Parameters tuned on 3 runs: 2026-05-08/run5, 2026-05-12/run5, 2026-03-31/run7",
+      "Geometry filters: MIN_NVOX=300, MIN_YSPAN_PIX=30, MIN_VERTICALITY=1.0",
+      "Human trace extraction sanity check: median r=0.995 (0.964-0.999) vs existing CSVs"
+    ]
+  },
+  {
+    "time": "2026-10-04T03:50:00Z",
+    "what": "Ran full pipeline on all 20 runs",
+    "files": [
+      "scape-auto/*/masks/auto_labelmap.tif",
+      "scape-auto/*/masks/auto_masks.csv",
+      "scape-auto/*/traces/dff_auto.csv",
+      "scape-auto/*/traces/dff_human_sameextractor.csv",
+      "scape-auto/*/validation/validation.json",
+      "scape-auto/*/validation/overlay.png"
+    ],
+    "verified": true,
+    "caveats": [
+      "CRITICAL: IoU-based validation shows POOR spatial correspondence with human masks",
+      "F1@IoU=0.3: Only 2 runs got any matches (0.014 F1)",
+      "F1@IoU=0.1: Better but still low (typically 0.1-0.2)",
+      "Voxel coverage of human regions: typically 1-22%",
+      "ROOT CAUSE: Detection operates on raw stacks; human masks drawn on M1-preprocessed data (Y-cropped, event-based)",
+      "The auto masks are valid dendrite-like structures with good calcium activity but are NOT spatially co-registered with human masks",
+      "Trace correlation of matched pairs varies widely: 0.03-0.65 median depending on run",
+      "Human trace sanity check PASSES: our extractor on human masks correlates r>0.99 with existing human traces"
+    ]
+  },
+  {
+    "time": "2026-10-04T03:55:00Z",
+    "what": "Performance summary",
+    "files": [],
+    "verified": true,
+    "caveats": [
+      "Total 410 auto masks detected across 20 runs (10-33 per run, median ~20)",
+      "Human masks per run: 30-133 (median ~62)",
+      "Detection runtime: ~15s per run",
+      "Trace extraction: ~45s per run",
+      "Validation: ~4s per run",
+      "Train runs (tuning): 2026-05-08/run5, 2026-05-12/run5, 2026-03-31/run7",
+      "Held-out runs: all others",
+      "No significant difference between train and held-out performance (both poor IoU)",
+      "The approach needs FUNDAMENTAL redesign to match human-curated masks - likely need to operate on M1-preprocessed data or implement registration"
+    ]
+  }
+]

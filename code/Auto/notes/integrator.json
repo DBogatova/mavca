@@ -1,0 +1,62 @@
+[
+  {
+    "time": "2026-10-04T00:10:00-04:00",
+    "what": "Integration of 4 parallel agents' work into unified SCAPE auto pipeline",
+    "files": [
+      "code/Auto/extract_traces.py (modified: prefer auto_labelmap_reviewed.tif)",
+      "code/Auto/auto_status.py (modified: combo_human.png detection, skipped validation handling)",
+      "code/Auto/auto_gui.py (modified: open combo_auto or combo_human)",
+      "code/Auto/validate_vs_human.py (modified: write minimal json for no-human-mask runs)"
+    ],
+    "verified": "2026-10-04T00:10:00-04:00",
+    "verification_evidence": [
+      "run_auto.py --run run7 --run run5 --force: 2/2 all stages OK (6.6min)",
+      "run_auto.py --run run8: OK (handles no-human-masks gracefully)",
+      "combo_plot.py --all --source auto: 20/20 OK",
+      "auto_stats.py --source both --all: auto 20, human 19, comparison OK",
+      "auto_status.py: all 20 runs with raw show 'complete'",
+      "auto_gui.py --selftest: PASS",
+      "mavca_gui.py --selftest: PASS (old workflow still works)",
+      "mavca_status.py: runs correctly",
+      "git status --porcelain: only expected changes (code/Auto, code/scape, .gitignore)",
+      "find scape-data -newer scape_common.py: no files (read-only constraint respected)"
+    ],
+    "caveats": [
+      "F1@IoU=0.3 is essentially 0 across all runs - auto detection finds different structures than human curation",
+      "Root cause: auto operates on raw stacks, human masks drawn on M1-preprocessed event crops",
+      "Trace correlation of matched pairs varies: median 0.03-0.65 depending on run",
+      "Human trace sanity check PASSED: r>0.99 between our extractor and existing human traces"
+    ]
+  },
+  {
+    "time": "2026-10-04T00:10:00-04:00",
+    "what": "Integration fixes applied",
+    "details": [
+      "extract_traces.py: prefers auto_labelmap_reviewed.tif when it exists (review tool output)",
+      "auto_status.py: detects combo_human.png as valid combo artifact",
+      "auto_status.py: accepts validation.json alone when it indicates 'skipped' (no human masks)",
+      "auto_gui.py: opens combo_auto.png or combo_human.png (tries auto first)",
+      "validate_vs_human.py: writes minimal validation.json when no human masks (prevents blocking)"
+    ],
+    "verified": true
+  },
+  {
+    "time": "2026-10-04T00:10:00-04:00",
+    "what": "Pipeline run summary - all 20 runs",
+    "details": {
+      "n_runs_with_raw": 20,
+      "n_runs_no_raw": 3,
+      "all_stages_complete": 20,
+      "n_with_human_masks": 19,
+      "total_auto_dendrites": 403,
+      "total_human_dendrites": 1380,
+      "mean_f1_iou_03_all": 0.001,
+      "mean_trace_r_all": 0.236,
+      "auto_mean_pairwise_r": 0.459,
+      "human_mean_pairwise_r": 0.050,
+      "auto_frac_global_events": 0.68,
+      "human_frac_global_events": 0.02
+    },
+    "verified": true
+  }
+]

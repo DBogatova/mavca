@@ -1,0 +1,112 @@
+{
+  "name": "apical-dendrites-2025 automatic SCAPE pipeline (code/Auto/)",
+  "started": "2026-10-03T23:06-04:00",
+  "last_update": "2026-10-04T14:40-04:00",
+  "modeled_on": "/Users/daria/Desktop/femtonics-data/code/STEP7_workflow (panel, status, combo figure, movies) and code/STEP9_auto (automatic mirror tree, runner, paper stats)",
+  "rules": [
+    "scape-data/ is only read. Every output goes to scape-auto/<DATE>/<MOUSE>/<RUN>/ (gitignored). Verified at the end: `find scape-data -newer code/Auto/CHANGELOG_auto.json` prints nothing.",
+    "Existing scripts (M1-M5, code/Workflow, Behavior-Analysis) were not modified. code/Auto reuses their conventions: F0 = 10th percentile after skip_s, core-shell background dilation(ball(3)) & ~dilation(ball(2)), accel_mag with y-limit 0.25, per-run camera->imaging offset.",
+    "Frame rate, skip_s and MASK_SOURCE come from code/Workflow/mavca_status.py; nothing hardcodes a rate."
+  ],
+  "how_to_use": {
+    "panel": "code/scape  (or double-click 'Scape Panel' on the Desktop)",
+    "everything": "code/scape run --all   (only redoes what is missing or out of date; ~55 min from scratch for 20 runs)",
+    "one run": "code/scape run DATE/MOUSE/RUN [--force]",
+    "review masks": "code/scape review DATE/MOUSE/RUN  -> masks/auto_labelmap_reviewed.tif, used by every later stage",
+    "status": "code/scape status",
+    "stats": "code/scape stats",
+    "guide": "code/Auto/README.md"
+  },
+  "changes": [
+    {
+      "time": "2026-10-03T23:10-04:00",
+      "what": "git: committed and pushed the pending apical-dendrites-2025 work to origin/main (963b633).",
+      "files": [".gitignore", ".kiro/steering/pipeline-context.md", "code/Behavior-Analysis/behavior_plots.py", "code/Preprocessing-STEP1/pre_segmentation_m1.5.py", "code/Traces-STEP3/concat_traces_m4.5.py", "code/Traces-STEP3/save_traces_m4.py", "code/Debug/audit_bestframe_offset.py", "code/Extra/bleach_correction/", "code/Masks-STEP2/add_absolute_event_frames.py", "code/Workflow/"],
+      "notes": "Remote github.com/DBogatova/dendrites (redirects to DBogatova/mavca). Stashes and the organoids / backup / ui-development branches left untouched."
+    },
+    {
+      "time": "2026-10-03T23:20-04:00",
+      "what": "scape_common.py: shared contract (run discovery, per-run parameters, human masks padded from Y-3 to the raw shape, behavior loader ported from behavior_plots.py, metrics.json). scape-auto/ and __pycache__/ added to .gitignore.",
+      "verified": "20 runs with raw stacks (the 3 dual-channel 6 Hz runs have no raw locally); behavior offset for 0508 run5 = 9.726 s from its own trigger CSV."
+    },
+    {
+      "time": "2026-10-03T23:20 - 2026-10-04T00:10-04:00",
+      "what": "First version built by four parallel agents (detector, plots/movies, GUI/runner, statistics) plus an integrator. Their notes: code/Auto/notes/*.json.",
+      "outcome": "Rejected after review: the v1 detector matched human dendrites essentially not at all (F1 0.00 at IoU 0.3, mean pairwise r 0.46 vs human 0.05, i.e. it segmented the field-wide glow); v1 statistics misaligned behavior by skip_s (12-14 s) because time was shifted twice; v1 validation counted every Hungarian pair as a match regardless of overlap; the napari 'merge' key merged ALL masks; the review tool crashed on open (add_labels color kwarg). The v1 detector and stats are kept in code/Auto/old/."
+    },
+    {
+      "time": "2026-10-04T01:00-03:00-04:00",
+      "what": "auto_detect.py v2 (rewritten): activity volume (dF/F, spatial high-pass, robust z) -> activity map -> greedy seeded region growing on correlation with a reference trace -> merge of touching units with r > 0.85 -> size / depth-extent / horizontal-sheet filters.",
+      "tuning": "Parameters tuned on 3 runs only (TRAIN_RUNS: 0508 run5, 0512 run5, 0331 run7). Hard shape filters (verticality, elongation) were tested and dropped: they removed 15-20% of human-matched units. Mask dilation tested and dropped: no recall gain, higher pairwise r.",
+      "files": ["code/Auto/auto_detect.py", "code/Auto/old/auto_detect_v1.0.0.py"]
+    },
+    {
+      "time": "2026-10-04T02:00-03:20-04:00",
+      "what": "validate_vs_human.py v2 (rewritten): functional recall (overlap + trace r), spatial Hungarian P/R/F1 at IoU 0.1-0.5 (TP needs IoU >= threshold), signal recall (multiple R of the auto units inside a human mask), split-half reliability of every unit with its own local background shell and a shifted-mask null; overlay and 'beyond human' gallery.",
+      "files": ["code/Auto/validate_vs_human.py"]
+    },
+    {
+      "time": "2026-10-04T02:20-02:45-04:00",
+      "what": "make_movie.py v2 (rewritten in the style of run8-pupil-acc-mip-dual-view.mp4): top = reference volume (peak activity of the detected dendrites) + dynamic dF/F volume, MIP over Z with true um aspect, 100 um bar, clock; bottom = global Ca, pupil, accel (0-0.25) with a moving red cursor; 1920x1080 H.264, 2x real time. ~70 s per run. combo_plot.py v2 (rewritten): global Ca, heatmap of all dendrites, fraction active, top-10 traces, pupil/whisker/accel, dendrite map coloured by r with locomotion, correlation matrix, pairwise r vs circular-shift null, per-dendrite behavior r with BH-FDR, onset-triggered global Ca with bootstrap CI and shuffled-onset band.",
+      "files": ["code/Auto/make_movie.py", "code/Auto/combo_plot.py"]
+    },
+    {
+      "time": "2026-10-04T02:45-05:10-04:00",
+      "what": "auto_stats.py v2 (rewritten). FOV is the unit of replication (runs sharing a FOV averaged before tests); per-dendrite mixed models with random intercept per FOV; behavior coupling at best lag +-3 s with a circular-shift null that repeats the lag search; onset-triggered averages; quiet vs moving; depth; same-FOV reproducibility; auto-vs-human comparison file.",
+      "files": ["code/Auto/auto_stats.py", "code/Auto/old/auto_stats_v1.py"]
+    },
+    {
+      "time": "2026-10-04T03:20-04:00",
+      "what": "Fixes in the GUI agent's code: auto_status/auto_gui read the v2 validation keys (recall, best r); combo counted as done only from combo_auto; movie staleness follows the labelmap; run_auto movie depends on detect + global; review_napari: click / Shift+click selection, D deletes and M merges only the selection, dock plots the auto trace with the human mask it overlaps most, no human 'stand-in' editing, add_labels crash fixed. Tested by driving the real napari window from a script (merge removed exactly the merged label)."
+    },
+    {
+      "time": "2026-10-04T04:20-05:10-04:00",
+      "what": "FOV handling. (1) Runs of one FOV are each detected on their own (auto_labelmap_perrun.tif) and then share the union of their dendrites (auto_labelmap.tif). (2) FOV groups are found from the images (scape_common.session_fov_groups: high-passed mean images, r >= 0.75; same-FOV pairs 0.80-0.87, different FOVs 0.51-0.56), not only from MASK_SOURCE. (3) human_mask_home(): each human mask set is scored on every run of its session (split-half reliability) and used only on runs of the FOV it fits.",
+      "finding": "IMPORTANT for the human pipeline: the 119 masks in scape-data/2026-04-16/rbp4_132_phpeb/run5/labelmaps_curated_dynamic (also used for run6 and run7 via MASK_SOURCE) fit run7 and run8 (split-half r 0.62 / 0.49) but not run5 / run6 (0.07 / 0.03 = noise; shifted-mask null ~0.04). The images agree: run7 vs run8 r = 0.86, run7 vs run5 r = 0.55 (= unrelated FOV). So the existing human traces for 2026-04-16 run5 and run6 were extracted with masks from another field of view, and run7 shares its FOV with run8 (never curated), not with run5. Also 0512 run9 and run10 image the same FOV (r >= 0.75) and run10's mask folder is identical to run9's. Nothing in scape-data or mavca_status.py was changed; the automatic pipeline excludes the mismatched pairs from every auto-vs-human comparison and from the human statistics.",
+      "files": ["code/Auto/scape_common.py", "scape-auto/fov_check.json", "scape-auto/human_mask_check.json"]
+    },
+    {
+      "time": "2026-10-04T03:07 - 13:15-04:00",
+      "what": "End-to-end runs of `run_auto.py --all` (all six stages + statistics): 20/20 runs OK for every stage in each pass (first full pass 55 min; later passes only redid what changed).",
+      "evidence": "scape-auto/logs/runner_summary.json, scape-auto/logs/runner.jsonl, per-run stage logs in scape-auto/logs/<run>/"
+    },
+    {
+      "time": "2026-10-04T13:20-14:30-04:00",
+      "what": "Independent audit (separate agent, code/Auto/notes/auditor.json): AUDIT_PASSED, no high-severity issue. Verified: scape-data untouched; old Workflow selftest passes; trace and behavior share one clock; recall recomputed independently equals validation.json (0512 run5 52/68 = 0.765; 0416 run1 27/54 = 0.500); unmatched auto units look like dendrites; FOV is the replication unit; the 0416 mask-FOV finding is supported by the numbers. Low items fixed afterwards: auto_gui --help, combo panel I labels, a stale docstring number. The audit also found 62 tracked __pycache__ .pyc files deleted from the working tree (not by this pipeline); restored with git checkout."
+    }
+  ],
+  "results": {
+    "validation_auto_vs_human": {
+      "definition": "home runs = the run each human mask set was drawn on / fits best (9 runs, 9 FOVs); other = runs that borrow those masks (8 runs, usually less active)",
+      "home_runs_median": {"n_auto": 229, "n_human": 62, "functional_recall_r>=0.7": 0.66, "recall_r>=0.5": 0.79, "median_best_trace_r": 0.80, "spatial_recall_IoU>=0.1": 0.69, "split_half_reliability_auto": 0.50, "split_half_reliability_human": 0.61, "shifted_mask_null": 0.08},
+      "borrowing_runs_median": {"functional_recall_r>=0.7": 0.35, "recall_r>=0.5": 0.60, "reliability_auto": 0.22, "reliability_human": 0.23},
+      "train_vs_heldout": "train runs (0508 run5, 0512 run5, 0331 run7) recall 0.57 / 0.77 / 0.43; held-out home runs 0.50-0.76 (0320 run1 0.58, run3 0.66, 0331 run8 0.73, 0416 run1 0.50, run7 0.76, 0512 run9 0.69). No sign of overfitting to the tuning runs.",
+      "verdict": "The automatic detector finds about 2/3 of the human dendrites with matching traces (4/5 at r >= 0.5) and 3-4x more units in total. Units it adds beyond the human set are internally coherent (reliability ~0.5 vs noise ~0.08, human ~0.6), so most look like real dendrite segments the curators did not keep, but they are on average a little less clean than hand-picked ones. Spatial agreement with the human outlines is modest (human masks are drawn wider). It is not a voxel-for-voxel replacement of curation; it reaches the same scientific conclusions on the main questions (below), and it detected one curation error humans missed (0416 masks/FOV). 'Better than human' holds for coverage and for consistency across runs, not for per-mask cleanliness."
+    },
+    "statistics_auto": "scape-auto/stats/auto/stats_summary.txt (20 runs, 10 FOVs, 3 mice, 4516 dendrite-run entries)",
+    "statistics_human": "scape-auto/stats/human/stats_summary.txt (17 runs, 9 FOVs)",
+    "comparison": "scape-auto/stats/compare_auto_vs_human.{txt,csv,png}",
+    "conclusions_that_agree": [
+      "Dendrites are largely independent: mean pairwise r per FOV 0.025 (auto) / 0.051 (human); 14% of pairs exceed the circular-shift null in both.",
+      "Nearby dendrites are slightly more correlated (rho(r, distance) < 0 in both, p < 0.01).",
+      "Global (whole-field) events are FOV-specific: median 10% / 15% of events, range 0-54%.",
+      "Pair-correlation structure is reproducible across runs of one FOV (Spearman 0.53 auto / 0.49 human).",
+      "Global Ca tracks locomotion and whisking (median r 0.36 and 0.50; 17/18 runs significant for accel) but not pupil at the FOV level.",
+      "About 30-45% of dendrites are individually coupled to whisking / locomotion (BH q < 0.05; LMM mean r with accel +0.08 auto / +0.05 human, both p < 0.05); dendritic event rate is higher during movement in both sets (2.9 vs 0.8 /min auto, 3.0 vs 1.2 /min human).",
+      "Event rate does not depend on depth when pooled over FOVs (both)."
+    ],
+    "conclusions_that_differ": [
+      "Dendrite-pupil coupling: human set mean r -0.047 (p = 0.011), auto +0.022 (n.s.).",
+      "Dendrite-whisker LMM mean r significant in auto (0.068, p = 0.008), not human (0.026).",
+      "Event amplitude increases with depth in auto (p < 1e-5), not in human (p = 0.32).",
+      "Participation ratio / N is lower in auto, but that metric falls with N by construction (auto has ~4x more units)."
+    ],
+    "caveats": [
+      "Only 3 mice (rbp4_132, rbp4_139, rbp4cre_139 treated as separate animals as labelled); FOV-level n = 8-10.",
+      "Accelerometer of 2026-03-31 run6 shows regular ~2 s spikes (looks like a periodic artefact, not locomotion; other runs of that session not checked); read accel coupling there with care.",
+      "The 6 Hz dual-channel sessions (2025-12-02, 2026-02-09, 2026-02-17) have no raw stack locally and are not processed.",
+      "Detection is activity-based: a dendrite silent in every run of a FOV cannot be found; quiet runs yield fewer units (FOV union mitigates this).",
+      "Any change to auto_detect.py parameters changes params_hash and makes `scape run --all` redo detection for every run (~50 min)."
+    ]
+  }
+}

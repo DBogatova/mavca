@@ -240,3 +240,11 @@ rate/min, IEI, durations s) for 136/138 are off by 5/6 and need recompute at 6 H
 
 ### KEY DOCS: docs/{analysis_plan,results_revised,experiment_log,paper_structure}.md;
 ### paper_figures/Figure1-4; scape-data/{rbp4_data_inventory,fov5_patterns,master_mask_table,*}.csv
+
+## Automatic pipeline (added 2026-10-04, code/Auto/, launcher code/scape) — see code/Auto/README.md + CHANGELOG_auto.json
+- Detects dendrites without curation, traces, validation vs human, combo figure, reference+dynamic movie, cohort stats.
+  Outputs only in scape-auto/ (gitignored); scape-data read-only. `code/scape run --all`, `code/scape review KEY`.
+- ⚠️ FOV/mask finding: masks in 2026-04-16/run5/labelmaps_curated_dynamic (MASK_SOURCE for run6/run7) fit run7/run8
+  (split-half r 0.62/0.49) not run5/run6 (0.07/0.03 = noise). Images: run7~run8 r=0.86, run7~run5 r=0.55. Human traces
+  for 0416 run5/run6 were extracted with another FOV's masks; run7 shares a FOV with run8, not run5. MASK_SOURCE unchanged.
+- 0512 run9/run10 are the same FOV (image r>=0.75); run10's mask folder equals run9's.

@@ -1,0 +1,34 @@
+[
+  {
+    "time": "2026-10-03T23:15:00-04:00",
+    "what": "Created GUI, status, runner, review tool, and launcher for SCAPE auto pipeline",
+    "files": [
+      "code/Auto/auto_status.py",
+      "code/Auto/auto_gui.py",
+      "code/Auto/review_napari.py",
+      "code/Auto/run_auto.py",
+      "code/Auto/README.md",
+      "code/scape",
+      "/Users/daria/Desktop/Scape Panel.app"
+    ],
+    "verified": "2026-10-03T23:18:00-04:00",
+    "verification_evidence": [
+      "auto_status.py: discovered 23 runs (20 with raw), wrote scape-auto/auto_status.csv",
+      "auto_gui.py --selftest: PASS (23 runs, 20 commands buildable)",
+      "run_auto.py: tested with stub scripts, 2026-04-16/rbp4_132_phpeb/run1, detect+traces OK",
+      "review_napari.py --offscreen: PASS on 2026-03-20/rbp4cre_139_phpeb/run1 (human masks as stand-in)",
+      "code/scape: help, status, next all working"
+    ],
+    "caveats": [
+      "Stage scripts (auto_detect.py, extract_traces.py, etc.) are written by other agents and may not exist yet",
+      "review_napari.py saves edits to auto_labelmap_reviewed.tif (never overwrites original)",
+      "extract_traces.py should prefer auto_labelmap_reviewed.tif when present - coordinate with detector agent"
+    ]
+  },
+  {
+    "time": "2026-10-03T23:15:00-04:00",
+    "what": "IMPORTANT: Downstream stage preference for reviewed masks",
+    "details": "review_napari.py saves user edits to OUT/masks/auto_labelmap_reviewed.tif. The original auto_labelmap.tif is never modified. Downstream stages (especially extract_traces.py) should check for and prefer auto_labelmap_reviewed.tif when it exists. This allows users to correct detection errors before trace extraction.",
+    "coordinator_note": "Please inform the detector/traces agent to implement this preference in extract_traces.py"
+  }
+]
