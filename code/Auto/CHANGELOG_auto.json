@@ -1,7 +1,7 @@
 {
   "name": "apical-dendrites-2025 automatic SCAPE pipeline (code/Auto/)",
   "started": "2026-10-03T23:06-04:00",
-  "last_update": "2026-10-04T16:20-04:00",
+  "last_update": "2026-10-04T17:20-04:00",
   "modeled_on": "/Users/daria/Desktop/femtonics-data/code/STEP7_workflow (panel, status, combo figure, movies) and code/STEP9_auto (automatic mirror tree, runner, paper stats)",
   "rules": [
     "scape-data/ is only read. Every output goes to scape-auto/<DATE>/<MOUSE>/<RUN>/ (gitignored). Verified at the end: `find scape-data -newer code/Auto/CHANGELOG_auto.json` prints nothing.",
@@ -151,6 +151,38 @@
         "No discrete event-waveform classes (silhouette 0.17-0.27); no power-law avalanches (exponential sizes); no lateral (X) gradient."
       ],
       "caveats": "5 Hz (lags <0.2 s unresolved), ~106 s per run, 3 mice (2 with behavior), SCAPE crosstalk inflates <30 um coupling, auto over-segmentation splits dendrites (biases isolated-event analyses), human masks are a curated subset."
+    },
+    {
+      "time": "2026-10-04T15:35-17:20-04:00",
+      "what": "Follow-up on the pupil-phase populations and consolidation of the independence results. pupil_phase_populations.py (figure + artifact controls incl. raw-stack over-subtraction test), explore_hemodynamics.py (voxel-level absorption test), skeptic_checks.py (re-tests of 3 headline claims with different methods), explore_encoding.py (blocked-CV encoding models, population coupling, graphical-lasso network), explore_factors.py (how many shared factors would make residuals independent), make_independence_figure.py (talk figure) and REPORT_independence.md.",
+      "files": [
+        "code/Auto/pupil_phase_populations.py",
+        "code/Auto/explore_hemodynamics.py",
+        "code/Auto/skeptic_checks.py",
+        "code/Auto/explore_encoding.py",
+        "code/Auto/explore_factors.py",
+        "code/Auto/make_independence_figure.py"
+      ],
+      "outputs": [
+        "scape-auto/stats/FIGURE_independence.{png,pdf}",
+        "scape-auto/stats/REPORT_independence.md",
+        "scape-auto/stats/pupil_phase/",
+        "scape-auto/stats/explore_hemodynamics/",
+        "scape-auto/stats/skeptic/",
+        "scape-auto/stats/explore_encoding/",
+        "scape-auto/stats/explore_factors/"
+      ],
+      "decision": "The 'anti-phase with pupil' dendrite group is DROPPED (PI decision, confirmed by the controls): it is a shell-subtraction artifact. The un-subtracted dendrite core is pupil-POSITIVE in 97% of anti-phase units; the neuropil shell is more pupil-positive than the core in ~90%, so core minus shell flips sign for weak dendrites. Not hemodynamic (voxel-level: 95% of voxels pupil-positive, 0% strongly negative, no vessel-shadow brightness signature, no lagged absorption dip). The earlier changelog entry describing this group as a stable cell type is superseded. The excess of negative pairs (8-9% vs 2.5%) is the same effect (vanishes on event trains: 1.2%). Note for the pipeline: for dendrites with weak signal the fixed core-minus-shell subtraction over-subtracts; a scaled shell coefficient (as in suite2p, ~0.7) or a regression-based neuropil correction would avoid this - not changed now, since it would alter every downstream file.",
+      "skeptic_verdicts": {
+        "silence/bursts bimodality": "robust across thresholds, high-pass, event onsets, IEI-preserving null, dropping top-10% dendrites; co-active bursts track locomotion (rho +0.52): shared drive, not proven lateral coupling",
+        "pupil-phase identity across runs": "above chance (kappa 0.80 auto / 0.58 human, depth-only predicts 57%) but the headline 95% is mostly the in-phase majority; moot now that anti-phase is dropped",
+        "negative pairs": "not drift or crosstalk, but sub-threshold and absent on event trains: same subtraction effect"
+      },
+      "key_results": [
+        "Population coupling: a dendrite is predicted from the others with held-out R2 0.21 (auto) / 0.30 (human); 19% effectively independent (R2<0.02), 52-56% strongly coupled (>0.2); far-only (>50 um) R2 0.19, so it is a shared network signal, not optical crosstalk; behavior and global Ca add ~0 unique variance beyond the population.",
+        "Choristers: population coupling rises with behavior coupling (rho +0.28), event rate, size, and falls with depth (LMM p<1e-60); hubs of the sparse partial-correlation network are superficial (67 vs 92 um); 92% of partial correlations are exactly zero.",
+        "No small number of shared inputs explains the dependence: k* > 20 factors in every FOV; first factor global (tracks global Ca r=0.61), second a depth gradient, third spatially clustered; 72%/49% of variance stays private after 20 factors."
+      ]
     }
   ],
   "results": {
