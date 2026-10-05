@@ -1,0 +1,139 @@
+{
+  "review": "external-root runs (/Volumes/IMAC/data) + auto_detect v2.1.0 + compare_genotype",
+  "date": "2026-10-05",
+  "reviewer": "code_review (read-only; only small trigger/accel CSVs, DAQ .mat (v7.3, h5py) and behavior .mat files were read; no raw stack opened)",
+  "summary": {
+    "high": 3,
+    "medium": 4,
+    "low": 11,
+    "frame_rate_verdict": "Andor edges are NOT per-volume: the line is high ~89% of the time with 1-ms dips whose intervals come in fixed 64/159/223 ms beats, and the edge rate is ~9.9/s on every session whatever the planes (31, 42, 55) or volume rate. So the ~2 edges/volume on 2025-12-02 and 2025-12-25 is a coincidence (2026-02-17: 1.64). Only the first and last edges mean anything: they mark when acquisition starts and stops. The defensible rate is n_frames / (last - first edge), uncertain by at most one beat (<=0.223 s) at the end, so <=0.2%, as long as the stack holds every acquired frame. Measured: 2025-12-02 run4 900/180.083 = 4.998 Hz (5.0 OK; run5 890/180.145 = 4.94); 2026-02-17 run7 728/120.360 = 6.049 (6.05 OK); 2025-12-25 run1 566/120.174 = 4.710 (4.71 OK if no frames were trimmed); 2026-02-09 run1 728/120.366 = 6.048 after removing start-up chatter (5.54 in the table is WRONG)."
+  },
+  "findings": [
+    {
+      "id": "H1",
+      "item": "scape_common: 2026-02-09/rbp4cre_136_phpeb/run1 Andor start-up chatter -> wrong frame rate, wrong pupil/whisker offset, wrong accel time base",
+      "severity": "high",
+      "evidence": "Run001_t1_trigger.csv (same md5 in scape-data and IMAC): AndorXylaTrigger is 1 at sample 0, then 248 rising edges at 6-10 ms intervals between 0.018 and 1.942 s, a 9.134 s silence, then the regular 64/159/223 ms pattern from 11.076 to 131.442 s (1192 edges, 120.366 s). 2026-02-17 run7 shows exactly the same: 1192 edges, span 120.360 s, 728 frames. Consequences: (a) AUTO_SESSION_PARAMS frame_rate 5.54 = 728/131.4 includes the chatter; correct value 728/120.366 = 6.048 Hz (9% time-axis error; skip becomes round(12*5.54) = 66 frames instead of 73). (b) load_behavior new-format branch: offset = first Andor edge - first Basler edge = 0.018 - 1.001 = -0.983 s; correct is 11.076 - 1.001 = 10.075 s, so pupil/whisker are off by 11.06 s. (c) The accel CSV aligned_time_s is zeroed at 0.018 s (trigger_info.txt: 'AndorXylaTrigger start sample = 18'), so accel is also off by 11.06 s. Behavior .mat has no settings.aligned_time_s, so the trigger fallback is the path actually used.",
+      "suggested_fix": "In scape_common add\n\ndef andor_start_stop(trig: 'pd.DataFrame') -> tuple[float, float] | None:\n    acol = next((c for c in trig.columns if 'ndor' in c), None)\n    if acol is None: return None\n    e = trig.loc[trig[acol].diff() == 1, 'time_s'].to_numpy()\n    if e.size < 2: return None\n    blocks = np.split(e, np.flatnonzero(np.diff(e) > 1.0) + 1)   # split at gaps > 1 s\n    b = max(blocks, key=len)                                    # acquisition = longest block\n    return float(b[0]), float(b[-1])\n\nThen in load_behavior use a0 = andor_start_stop(trig)[0] in place of a.iloc[0] in both trigger branches. In the accel branch ALWAYS compute t = df['time_s'] - a0 - crop when a trigger CSV exists, and fall back to aligned_time_s only when it does not (aligned_time_s inherits the chatter error). Set AUTO_SESSION_PARAMS[('2026-02-09','rbp4cre_136_phpeb')] = {'frame_rate': 6.05, 'skip_s': 12.0, 'source': 'triggers (728 fr / 120.37 s; chatter 0-1.9 s excluded)'}. Re-run detect/traces/stats for that session."
+    },
+    {
+      "id": "H2",
+      "item": "scape_common.load_behavior OLD trigger format: assuming the camera starts at recording t=0 is wrong by 1.001 s",
+      "severity": "high",
+      "evidence": "The raw DAQ files (trigger/RunNNN_t1.mat, MATLAB v7.3) still contain the baslerExposureTrigger channel that mat_to_csv.m left out of the old CSV. Read with h5py: 2025-12-02 run4 and run5 have 2030 Basler rising edges, 1.001 .. 203.901 s at 0.100 s; 2025-12-25 rAi162_phpeb run1 has 1330 edges, 1.001 .. 133.901 s. These counts equal the pupil/whisker lengths in the behavior .mat files (2030, 2030, 1330), and new-format sessions also start the Basler at 1.001 s. The code sets offset = first Andor edge (22.782 / 22.999 / 11.122), so it places every camera sample 1.001 s too early on the imaging clock. All three runs are Ai162, so this bias is confounded with genotype in every behavior-lag or correlation analysis. Camera rate 10 Hz: confirmed (0.1 s Basler ISI).",
+      "suggested_fix": "In the old-format branch replace\n    offset, src = float(a.iloc[0]), f\"trigger:{...} (no Basler column; camera start = t0)\"\nwith\n    offset, src = a0 - OLD_FORMAT_BASLER_START_S, f\"trigger:{r.trigger_csv.name} (Basler start 1.001 s from DAQ .mat)\"\nand define OLD_FORMAT_BASLER_START_S = 1.001 at module level, citing the h5py check above. A better option is to read the first baslerExposureTrigger edge from the RunNNN_t1.mat with h5py when it is present. The accel old-format time base (time_s - first Andor edge) is correct; keep it, using a0 from H1."
+    },
+    {
+      "id": "H3",
+      "item": "scape_common.load_behavior OLD accel format: accMag is the raw vector magnitude (gravity + offsets), not the motion magnitude that accel_mag holds",
+      "severity": "high",
+      "evidence": "New-format accel_mag equals sqrt(sum((acc_i - median(acc_i))^2)) exactly (r = 1.0000, max abs diff 1e-14 on 2026-02-17 run7; median 0.005). Old-format accMag = sqrt(accX^2+accY^2+accZ^2) (mat_to_csv.m; r = 1.0 vs recomputed), median 4.65 with p5-p95 4.648-4.662. After the same gaussian(sigma=10), the old trace barely tracks the motion definition: r = 0.149 (2025-12-02 run4) and 0.012 (2025-12-25 run1), and 0.18 / 0.03 after binning at 5 Hz. abs() does nothing to a signal sitting at +4.65, so deviations cancel instead of rectifying. Affects r_accel, accel onsets and quiet/active (>75th pct) splits on the 3 old-format runs, all Ai162, so the bias is genotype-confounded.",
+      "suggested_fix": "In load_behavior replace\n    mag = df['accel_mag'] if 'accel_mag' in df else df['accMag']\nwith\n    if 'accel_mag' in df:\n        mag = df['accel_mag'].to_numpy()\n    else:   # old CSV: rebuild the same definition as the new format (per-axis median removed)\n        mag = np.sqrt(sum((df[c].to_numpy() - np.median(df[c].to_numpy()))**2 for c in ('accX', 'accY', 'accZ')))\nand gaussian_filter1d(np.abs(mag), 10) as before."
+    },
+    {
+      "id": "M1",
+      "item": "auto_detect.segment: big-stack path computes the unit trace (peak_snr, n_events, score) differently from the small path",
+      "severity": "medium",
+      "evidence": "With big=True the trace is tr[:, pos[vid]].mean(1). tr columns are clipped at -2, mean-centred and L2-normalised (equal weight per voxel), and filled-hole voxels (pos == -1) are dropped. The small path uses zflat[:, vid].mean(1) on the raw robust-z columns. Logs show the big path ran for 2025-12-02 run4/run5, 2025-12-25 run1/run2, 2026-02-24 run1 and 2026-02-17 run7 (all Ai162), while 2026-02-24 run5 and 2026-02-26 run2 went small. compare_genotype.DEND_METRICS['signal'] includes peak_snr and FIG_METRICS includes med_peak_snr, so a code-path difference feeds into a genotype metric. Pass/fail is unaffected (MIN_PEAK_SNR = 0).",
+      "suggested_fix": "In segment replace the big branch with\n    if big:\n        trace = np.asarray(flat[:, np.sort(vid)], np.float32).mean(1)   # one unit (<1e5 cols): memmap fancy-index is fine\nso both paths use the same substrate. Bump __version__ to 2.1.1 (params_hash changes, so units are regenerated)."
+    },
+    {
+      "id": "M2",
+      "item": "extract_traces: skip_frames = int(skip_s*fr) (truncation) and time_s = 0 at that frame, while load_behavior shifts by exactly skip_s and auto_detect/make_movie use round()",
+      "severity": "medium",
+      "evidence": "Non-integer rates are new with AUTO_SESSION_PARAMS. 2025-12-25: int(7*4.71) = 32, so the first trace sample sits at 32/4.71 = 6.794 s of imaging time but is labelled time_s = 0, while behavior is shifted by 7.0 s, a 0.206 s (about one frame) misalignment. 2026-02-17: 72/6.05 = 11.901 s gives a 0.099 s error. Detection uses round(): 533 frames vs 534 in the traces (metrics.json human_trace_comparison.n_frames = 534). auto_stats, combo_plot, coherence_behavior and explore_encoding all pair df['time_s'] with load_behavior(r).",
+      "suggested_fix": "In extract_traces.extract_traces change\n    cols = {'Frame': np.arange(skip_frames, T), 'time_s': (np.arange(n_out_frames) / frame_rate)}\nto\n    cols = {'Frame': np.arange(skip_frames, T), 'time_s': np.arange(skip_frames, T) / frame_rate - skip_s}\nKeep int() if it is needed to match the human pipeline's frame selection. The time axis is then exactly on load_behavior's clock. Do the same in global_ca.py if it builds time_s the same way."
+    },
+    {
+      "id": "M3",
+      "item": "compare_genotype statistics: replication unit and mixed-model specification",
+      "severity": "medium",
+      "evidence": "Genotype is read correctly from scape_common (genotype(), r.genotype, GENOTYPE for is_uncertain). FOV averaging before Mann-Whitney is done right (groupby fov then mean). BH (step-up with cumulative min from the top), Cliff's delta (P(x>y)-P(x<y)) and Hedges g (J = 1-3/(4(nx+ny)-9)) are all correct. Problems: (1) FOVs of the same mouse are treated as independent in the FOV-level MWU (rbp4_132_phpeb alone has 3 sessions and many FOVs), but genotype varies only between mice. (2) The MixedLM has a random intercept for FOV only (groups=fov) and no mouse level. It uses Wald z p-values with about 5-10 groups per arm, which is anti-conservative, and m.converged is never checked. (3) rbp4cre_139_phpeb (2026-03-20) is most likely the same animal as rbp4_139_phpeb (mice.csv: Rbp4-Cre + AAV-PHP.eB GCaMP7s, injected 2025-10-10; no separate rbp4cre_139 entry), so per_mouse_table counts it as an extra viral mouse. (4) The docstring says 'BH across the metrics of each family', but bh() runs over all families together within (source, cohort). That is more conservative, but it contradicts the documentation.",
+      "suggested_fix": "(1)+(2) In mixedlm_dendrite use\n    m = smf.mixedlm('value ~ g', s, groups=s['mouse_id'], vc_formula={'fov': '0 + C(fov)'}).fit(reml=True, method='lbfgs')\n    if not m.converged: p = nan\nand add a mouse-level test (median of FOV values per mouse_id, then mannwhitneyu, or an exact permutation of genotype labels over mice) reported as the primary inference. (3) Add MOUSE_ALIAS = {'rbp4cre_139_phpeb': 'rbp4_139_phpeb'} in scape_common and set mouse_id = MOUSE_ALIAS.get(mouse, mouse) wherever compare_genotype groups by mouse. GENOTYPE stays 'viral(uncertain)' until the PI confirms. (4) Either apply bh() per family: out['q'] = out.groupby('family')['p'].transform(lambda s: pd.Series(bh(s.to_numpy(float)), index=s.index)), or fix the docstring."
+    },
+    {
+      "id": "M4",
+      "item": "auto_detect: scratch memmaps are only deleted on success",
+      "severity": "medium",
+      "evidence": "detect_own deletes SCRATCH/<key>_*.npy only after segment() returns. If activity_volume or segment raises (MemoryError, KeyboardInterrupt), z.npy and zs.npy (each T*Z*Y*X*2 bytes, about 7 GB for 2026-02-09) stay in /tmp. Free space on the data volume is 56 GiB (94% used), and --jobs 2 runs two big stacks at once. The zflat/zs/flat memmaps go out of scope when segment returns and the z name is deleted, so mappings are released on the success path. /tmp/scape_auto_scratch was empty when checked.",
+      "suggested_fix": "In detect_own wrap the calls:\n    try:\n        z, mean = activity_volume(r, verbose) ...\n        lab, top, info = segment(z, verbose, r.key)\n    finally:\n        z = None\n        for f in SCRATCH.glob(f\"{r.key.replace('/', '_')}_*.npy\"):\n            f.unlink(missing_ok=True)\nand in segment add 'del zs, flat, zflat' before return so the mappings close deterministically."
+    },
+    {
+      "id": "L1",
+      "item": "auto_detect.activity_volume big path: Z margin 5 < full filter support 8",
+      "severity": "low",
+      "evidence": "With scipy's default truncate=4, the HP_SIGMA z=1.5 kernel has radius 6 and SMOOTH_SP z=0.5 has radius 2, so the cascade needs 8 planes. With margin 5, planes at a block seam see reflected data for taps 6-8, whose weight is on the order of 1e-4 of the HP term. Per-block median/MAD is computed over time per voxel (axis=0 on a[::2, core]), the same as the small path, so normalising each Z-block separately is equivalent. f0 is smoothed globally before blocking, which is also equivalent.",
+      "suggested_fix": "margin = 8, or keep 5 and pass truncate=3.0 to the HP gaussian in both paths (changes the hash). Block size: blk = max(4, int(BIG_BYTES // (T*Y*X*4*1.5)) - 2*margin) to limit read amplification (02-17 currently reads 16 planes for 6)."
+    },
+    {
+      "id": "L2",
+      "item": "auto_detect adaptive thresholds: robustness",
+      "severity": "low",
+      "evidence": "The logic is correct: percentiles 50/90/99 on top[::7], clipping to [MIN, fixed], GROW_R_DIM when FG < 4.0, and fg_z/seed_z/grow_r written to every unit row. params_hash covers all new P keys plus __version__. np.partition(..., T-TOPK)[-TOPK:] picks the top 3 correctly. Risks: np.percentile returns NaN if any top value is NaN (from float16 overflow to inf in z = (a-med)/mad with mad floor 1e-4), and then fg = top > nan gives zero units for the whole run. Checked ref_activity.tif for 4 runs: all finite, padding fraction <= 1.8%, and quantiles over tissue match all voxels, so this does not bite today. Also, the 2025-12-02 run4 log shows FG = 4.29 / SEED = 5.21, so not every 'bright 30-plane' stack lands on the fixed values as the comment claims.",
+      "suggested_fix": "q = top[::7]; q = q[np.isfinite(q)]; floor, p90, p99 = np.percentile(q, [50, 90, 99]). Before writing float16 use z[t, z0:z1] = np.clip((a[t, core] - med) / mad, -6e4, 6e4), and the same in the small path. Correct the comment."
+    },
+    {
+      "id": "L3",
+      "item": "AUTO_SESSION_PARAMS: comment and residual uncertainty",
+      "severity": "low",
+      "evidence": "The comment '(two Andor edges per volume on the dual-camera sessions)' is wrong; see summary.frame_rate_verdict (02-17: 1192 edges for 728 frames). 2025-12-02 run5 is 890 frames over 180.145 s = 4.94 Hz vs the session value 5.0 (1.2%). 2025-12-25 run1 4.71 Hz holds only if no frames were trimmed from the 566-frame stack. With the per-edge (edges/2) estimator it would be 4.96 Hz, but that estimator is invalid. 2026-02-24 and 2026-02-26 (no trigger) stay 'assumed 5.0'. This is consistent with 2025-12-02 (31 planes, measured 5.0), but unverified. The 2026-02-24 run1 stack is 'frames-removed', so its frame 0 is not the acquisition start (no trigger/behavior there, so there is no alignment consequence).",
+      "suggested_fix": "Replace the comment with: 'Andor DAQ line is aliased (fixed 64/159/223 ms beats, ~9.9 edges/s regardless of volume rate); only first/last edges are used; rate = n_frames/(last-first), <=0.2% uncertain.' Optionally allow per-run overrides keyed (date, mouse, run), e.g. ('2025-12-02','rbp4cre_136_phpeb','run5'): 4.94."
+    },
+    {
+      "id": "L4",
+      "item": "scape_common.find_raw: substring blacklist",
+      "severity": "low",
+      "evidence": "Checked every raw/ listing on IMAC and scape-data. The selections are correct for all new patterns: runA_run4_..._binimagej_reslice_green.tif; the '_green._processedtif.tif' file in 2025-12-02 run5 is rejected by 'processed'; '-reslice-bin-frames-removed-green.tif' and '-bin-green-good.tif' are picked; '_red' files, MAX_*, mip_*, *.avi and '-dff.tif' are rejected. But 'red' also matches 'registered', 'filtered', 'centered' and 'f0' matches any 'f0' substring, so a future registered green stack would be silently skipped. Only '*.tif' is globbed ('.tiff' is missed).",
+      "suggested_fix": "Use token matching: toks = set(re.split(r'[^a-z0-9]+', n)); bad = toks & {'dff','red','processed','processedtif','mip','max','f0','crop','1dendrite','3d'}. Glob both '*.tif' and '*.tiff'."
+    },
+    {
+      "id": "L5",
+      "item": "scape_common._run_dirs: duplicate run dirs across roots",
+      "severity": "low",
+      "evidence": "Discovery logic is correct: DATA_ROOT comes first; a later root replaces an entry only when the earlier one had no raw; AppleDouble '._' entries are filtered (find_raw, _first, human_masks; d.is_dir() and the date regex exclude '._<date>' files); '-crop' runs and EXCLUDE_MICE are skipped. The nested rAi162/<date>/<mouse>/<run> layout is matched by the second glob. Side effect: 2025-12-02 run4 exists in both roots. scape-data has no raw and 21 curated masks, IMAC has the raw and 56 masks, and the whole Run (human masks, traces, behavior) comes from IMAC. That is probably right (n_common = 56 in metrics), but it is not documented which curation is authoritative. extra['root'] = d.parents[2] gives '/Volumes/IMAC/data/rAi162' for nested runs instead of the configured root. has_ach: AUTO_SESSION_PARAMS has no 'has_ach' key, so 2025-12-02, 2026-02-09 and 2026-02-17 lose has_ach=True from mavca_status (has_ach is unused in code/Auto today).",
+      "suggested_fix": "Log a warning when a key is seen in more than one root and record extra['also_in'] = [other dirs]. Store the configured root: pass root into seen[key] = (d, raw, root) and set extra['root'] = str(root). Merge rather than replace: p = {**SESSION_PARAMS.get(k, {}), **AUTO_SESSION_PARAMS.get(k, {})}."
+    },
+    {
+      "id": "L6",
+      "item": "genotype(): rbp4cre_139_phpeb mapping",
+      "severity": "low",
+      "evidence": "genotype('rbp4cre_139_phpeb') -> 'viral' (from 'viral(uncertain)'), and compare_genotype runs with and without it. femtonics-data/mice.csv lists only rbp4_139_phpeb (Rbp4-Cre + AAV-PHP.eB GCaMP7s, 2025-10-10), which supports 'viral' and suggests the two names are one animal (see M3). Ai162 status of rAi162_phpeb / _42 / _44 could not be checked against any table (mice.csv only has rbp4_ai162_055).",
+      "suggested_fix": "Keep the mapping, add MOUSE_ALIAS as in M3, and ask the PI to confirm identity (139) and the rAi162_* lineage."
+    },
+    {
+      "id": "L7",
+      "item": "Item 3: validate_vs_human.py / extract_traces.py / make_movie.py and external roots",
+      "severity": "low",
+      "evidence": "grep for 'scape-data|DATA_ROOT|relative_to' in code/Auto/*.py finds only docstrings, scape_common's definitions, the Run.src fallback (unused when extra['src'] is set, which discover_runs always does), and auto_status.py out.relative_to(PROJECT) on an output path, which is fine. The three scripts use r.raw, r.out, r.human_mask_dir and r.human_traces from Run. No remaining path assumption was found.",
+      "suggested_fix": "None needed. Optionally make Run.src raise when extra['src'] is missing instead of silently assuming DATA_ROOT."
+    },
+    {
+      "id": "L8",
+      "item": "compare_genotype: power and documentation",
+      "severity": "low",
+      "evidence": "With exact MWU and 3 vs 3 FOVs the smallest possible two-sided p is 0.10 (0.057 for 4 vs 3), so no metric can survive BH at small n. 'low_power' is flagged only when min(n) < 4. The comments say Ai162 rates are '+-10%' (AI162_RATE_RANGE), but they are <=0.2% once H1 is fixed. The docstring says 'Ai162 42-69 planes, viral 30', but 2025-12-02 is 31 planes and 2026-02-24/26 are 29-31.",
+      "suggested_fix": "Report the minimum attainable p next to each test (e.g. 2/comb(n_ai+n_vi, n_ai)) and fix the two comments."
+    },
+    {
+      "id": "L9",
+      "item": "Confound note for any genotype contrast",
+      "severity": "low",
+      "evidence": "Ai162 runs differ from viral not only in indicator but also in trigger format (old CSV: 3 runs), detection path (big memmap: 6 runs), plane count (29-55 vs 30) and frame rate (4.71-6.05 vs 5). H1-H3 and M1 are all of this kind, so each one shifts the Ai162 group as a block.",
+      "suggested_fix": "After the fixes, add covariates 'trigger_format' (old/new) and 'detect_path' (big/small) to covariates_per_fov and report their Spearman rho with each surviving metric."
+    },
+    {
+      "id": "L10",
+      "item": "auto_detect big-path memmap handling (verified OK)",
+      "severity": "low",
+      "evidence": "This finding records no defect. open_memmap returns np.memmap, so isinstance(z, np.memmap) sets big correctly. zs.reshape(T, V) on the memmap is a writable view, so in-place renormalisation goes to disk. The chunked gather is correct: idx is sorted from flatnonzero, and tr[:, sel] = flat[:, i:i+400000][:, idx[sel]-i] keeps column order. float32 -> float16 writes are implicit casts, with no silent truncation beyond float16 precision (about 3 significant digits, fine for z). pos maps fg voxel -> tr column, and units only contain fg voxels except filled holes (see M1). The cache path (np.load into RAM) disables big, which is intended.",
+      "suggested_fix": "None."
+    },
+    {
+      "id": "L11",
+      "item": "tune_ai162_detect / segment scratch naming when key=''",
+      "severity": "low",
+      "evidence": "segment(z, key='') on a memmap writes SCRATCH/_zs.npy, which detect_own's cleanup glob (<key>_*.npy) never removes. tune_ai162_detect.py does unlink its own '<vkey>_zs.npy'.",
+      "suggested_fix": "In segment: if big and not key: raise ValueError('segment(big memmap) needs key for scratch naming')."
+    }
+  ]
+}

@@ -84,6 +84,43 @@ ind_a = pd.read_csv(os.path.join(STATS, "independence/auto/per_run.csv"))
 ind_h = pd.read_csv(os.path.join(STATS, "independence/human/per_run.csv"))
 dyn_a = pd.read_csv(os.path.join(STATS, "explore_dynamics/auto/per_fov.csv"))
 
+# ---- numbers that exist only in the summary .txt files: parsed (v2), not hardcoded ----
+import re
+
+
+def _txt(rel):
+    with open(os.path.join(STATS, rel)) as fh:
+        return fh.read()
+
+
+def _grab(rel, pattern, cast=float):
+    m = re.search(pattern, _txt(rel), flags=re.S)
+    if m is None:
+        raise RuntimeError(f"pattern not found in {rel}: {pattern}")
+    return cast(m.group(1))
+
+
+_SF = r"Same-frame \(synchronous, \|offset\|=0\) fraction: observed median ([0-9.]+) vs null ([0-9.]+)"
+sameframe_obs, sameframe_null = {}, {}
+for _src in ("auto", "human"):
+    _m = re.search(_SF, _txt(f"explore_dynamics/{_src}/summary.txt"))
+    sameframe_obs[_src], sameframe_null[_src] = float(_m.group(1)), float(_m.group(2))
+seq_frac_pct = _grab("independence/auto/summary.txt", r"\[C_sequences\] ([0-9.]+)% of pairs")
+seq_frac_pct_h = _grab("independence/human/summary.txt", r"\[C_sequences\] ([0-9.]+)% of pairs")
+chorister_rho = _grab("explore_encoding/auto/summary.txt",
+                      r"\[chorister_vs_soloist\].*?within-run Spearman median ([+-][0-9.]+)")
+lmm_depth = _grab("explore_encoding/auto/summary.txt", r"\[pop_coupling_LMM\].*?depth_um ([+-][0-9.]+) \(p=")
+lmm_depth_p = _grab("explore_encoding/auto/summary.txt",
+                    r"\[pop_coupling_LMM\].*?depth_um [+-][0-9.]+ \(p=([0-9.e+-]+)\)")
+cluster_z = _grab("explore_structure/auto/summary.txt", r"\[S6_cluster_compactness\].*?median z=([+-]?[0-9.]+)")
+slow_excess = _grab("explore_dynamics/auto/summary.txt", r"Mean local-rate r excess over null: median ([+-][0-9.]+)")
+
+# ---- cohort counts from the tables themselves -----------------------------------------
+N_RUNS = ind_a["run"].nunique()
+N_FOVS = ind_a["fov"].nunique()
+N_MICE = ind_a["mouse"].nunique()
+FR_MIN, FR_MAX = ind_a["fr"].min(), ind_a["fr"].max()
+
 # ============================================================================
 # FIGURE SCAFFOLD  (3 x 3 grid, ~16 x 11 in)
 # ============================================================================
@@ -185,7 +222,7 @@ axC.set_xlabel("population-coupling R$^2$ (predict a dendrite from all others)")
 axC.set_ylabel("density")
 axC.legend(loc="center right", fontsize=8, frameon=False)
 axC.set_title("C ~1/5 of dendrites are effectively independent;\n"
-              "a slim majority are strongly coupled (auto & human agree)",
+              "about half are strongly coupled (auto & human agree)",
               fontsize=10, loc="left")
 letter(axC, "")
 
@@ -204,8 +241,9 @@ axD.set_xlabel("R$^2$ from ALL other dendrites")
 axD.set_ylabel("R$^2$ from FAR dendrites only (>50 um)")
 # far-minus-all FOV median
 famed = fov_median(encr_a, ["med_far_minus_all"])["med_far_minus_all"]
+far_pred = (enc_a["r2_pop_far50"] > 0.02).mean() * 100
 axD.text(0.03, 0.95,
-         f"far-minus-all R$^2$ median {famed:+.3f}\n79% still predicted with\nneighbours <50 um removed",
+         f"far-minus-all R$^2$ median {famed:+.3f}\n{far_pred:.0f}% still predicted with\nneighbours <50 um removed",
          transform=axD.transAxes, fontsize=8, va="top")
 cb = fig.colorbar(hb, ax=axD, fraction=0.046, pad=0.02)
 cb.set_label("dendrites (log)")
@@ -251,11 +289,8 @@ letter(axE, "")
 #   explore_dynamics/{auto,human}/summary.txt (not emitted to CSV); quoted here.
 # ----------------------------------------------------------------------------
 axF = fig.add_subplot(gs[1, 2])
-# from explore_dynamics summaries, item [4 onset precision]:
-sameframe_obs = {"auto": 0.40, "human": 0.51}     # observed median same-frame fraction
-sameframe_null = {"auto": 0.10, "human": 0.10}    # circular-shift null
-# sequential (lagged) coupled pairs, from independence [C_sequences]:
-seq_frac_pct = 0.6
+# same-frame fractions: parsed above from explore_dynamics/{auto,human}/summary.txt [4];
+# sequential-pair fraction: independence/{auto,human}/summary.txt [C_sequences]
 xx = np.arange(2)
 axF.bar(xx - 0.2, [sameframe_obs["auto"], sameframe_obs["human"]], 0.4,
         color=C_OBS, label="observed")
@@ -266,7 +301,7 @@ axF.set_ylabel("fraction of coupled pairs onset in the SAME 0.2 s frame")
 axF.set_ylim(0, 0.65)
 axF.legend(loc="upper right", fontsize=8, frameon=False)
 axF.text(0.5, 0.52,
-         f"sequential (lagged)\ncoupled pairs: {seq_frac_pct:.1f}%",
+         f"sequential (lagged) coupled pairs:\nauto {seq_frac_pct:.1f}% / human {seq_frac_pct_h:.1f}%",
          transform=axF.transAxes, fontsize=9, ha="center",
          bbox=dict(boxstyle="round", fc="#fff3cd", ec="#c9a227"))
 axF.set_title("F coupled events are SYNCHRONOUS (same 0.2 s frame),\n"
@@ -287,8 +322,10 @@ axG.axhline(0, color="k", lw=0.5, ls=":"); axG.axvline(0, color="k", lw=0.5, ls=
 cb = fig.colorbar(sc, ax=axG, fraction=0.046, pad=0.02)
 cb.set_label("cortical depth (um)")
 axG.text(0.03, 0.96,
-         "chorister axis: rho(pop,beh)=+0.283\npop coupling falls with depth\n(LMM -0.052 per z, p<1e-60)",
-         transform=axG.transAxes, fontsize=8, va="top")
+         f"chorister axis: rho(pop,beh)={chorister_rho:+.3f}\npop coupling falls with depth\n"
+         f"(LMM {lmm_depth:+.3f} per SD depth, p={lmm_depth_p:.1e})",
+         transform=axG.transAxes, fontsize=8, va="top",
+         bbox=dict(boxstyle="round", fc="white", ec="none", alpha=0.85))
 axG.set_title("G choristers: dendrites tied to behaviour are also tied to\n"
               "the population; coupling is graded along depth (auto)",
               fontsize=10, loc="left")
@@ -334,7 +371,8 @@ for _, row in cl.iterrows():
 axI.scatter([0] * len(cl), cl["cluster_within_dist_um"], color=C_OBS, s=22, zorder=3, label="observed")
 axI.scatter([0.6] * len(cl), cl["cluster_within_dist_null_um"], color=C_NULL, s=22, zorder=3, label="random label null")
 axI.set_ylabel("within-cluster 3D distance (um)")
-axI.set_ylim(120, 180)
+_lo, _hi = np.nanmin(cl.values), np.nanmax(cl.values)
+axI.set_ylim(np.floor(_lo / 10) * 10 - 5, np.ceil(_hi / 10) * 10 + 5)
 # right group: slow local-rate r (right y-axis)
 axI2 = axI.twinx()
 x1 = [1.6, 2.2]
@@ -343,14 +381,14 @@ for _, row in sl.iterrows():
 axI2.scatter([1.6] * len(sl), sl["slow_r_obs"], color="#8c1d40", s=22, zorder=3)
 axI2.scatter([2.2] * len(sl), sl["slow_r_null"], color=C_NULL, s=22, zorder=3)
 axI2.set_ylabel("slow local-rate correlation r")
-axI2.set_ylim(-0.05, 0.25)
+axI2.set_ylim(-0.05, max(0.25, float(np.nanmax(sl.values)) * 1.08))
 axI.set_xticks([0, 0.6, 1.6, 2.2])
 axI.set_xticklabels(["clusters\nobs", "random\nnull", "slow-rate\nobs", "shift\nnull"], fontsize=8)
 axI.set_xlim(-0.4, 2.6)
 axI.axvline(1.1, color="k", lw=0.5, ls=":")
-axI.text(0.02, 0.04, "clusters more compact than chance\n(z=-1.90)",
+axI.text(0.02, 0.04, f"clusters more compact than chance\n(FOV median z={cluster_z:+.2f})",
          transform=axI.transAxes, fontsize=8, va="bottom")
-axI.text(0.98, 0.96, "slow shared\nexcitability\nexcess +0.077",
+axI.text(0.98, 0.96, f"slow shared\nexcitability\nexcess {slow_excess:+.3f}",
          transform=axI.transAxes, fontsize=8, va="top", ha="right")
 axI.set_title("I residual structure after removing global+behaviour:\n"
               "compact clusters & slow shared excitability (auto)",
@@ -359,7 +397,7 @@ letter(axI, "")
 
 # ============================================================================
 fig.suptitle("Are L5 pyramidal apical dendrites independent computational units?  "
-             "SCAPE Ca$^{2+}$ imaging, 5 Hz, 3 mice, 20 runs, 10 FOVs  "
+             f"SCAPE Ca$^{{2+}}$ imaging, {FR_MIN:.2f}-{FR_MAX:.2f} Hz, {N_MICE} mice, {N_RUNS} runs, {N_FOVS} FOVs  "
              "(auto detection; human-curated replication)",
              fontsize=13, fontweight="bold", y=0.985)
 

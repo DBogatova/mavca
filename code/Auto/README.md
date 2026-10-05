@@ -39,6 +39,19 @@ cheap when nothing changed. Full run from scratch: ~55 min for 20 runs on this M
 `scape_common.py` holds the shared paths, per-run parameters (frame rate, skip from
 `code/Workflow/mavca_status.py`), FOV grouping and the behaviour loader.
 
+## Data roots, sessions and genotypes
+
+Runs are discovered under `scape-data/` and under the roots listed in
+`scape_common.EXTRA_DATA_ROOTS` (currently the external drive `/Volumes/IMAC/data`, which may
+hold `<date>/<mouse>/<run>` or `<group>/<date>/<mouse>/<run>`). Outputs always go to
+`scape-auto/`; nothing is written to the drives. Frame rate and skip come from
+`code/Workflow/mavca_status.py` or, for sessions not listed there, from
+`scape_common.AUTO_SESSION_PARAMS` (the 2025-12 / 2026-02 Ai162 sessions: rates measured from
+the span of the Andor trigger edges in the run's own trigger CSV, 4.7-6.05 Hz, about +-10%
+uncertain). Old rAi162_15 / rAi162_18 / organoid sessions are excluded (unknown rate and Z
+step). `scape_common.GENOTYPE` maps mice to `Ai162` (Rbp4-Cre x Ai162 GCaMP6s + PHP.eB) or
+`viral` (Rbp4-Cre + PHP.eB GCaMP7s); `compare_genotype.py` compares the two groups.
+
 ## How dendrites are found (auto_detect.py)
 
 1. Activity volume: per-voxel F0 = 10th percentile after the skip, dF/F, spatial high-pass
@@ -46,6 +59,10 @@ cheap when nothing changed. Full run from scratch: ~55 min for 20 runs on this M
 2. Seeded region growing: start at the most active voxel, add neighbouring voxels whose trace
    correlates with the unit's reference trace (r > 0.45), repeat. Touching units with
    r > 0.85 are merged; units < 400 voxels, < 20 um deep, or flat horizontal sheets are dropped.
+   Foreground and seed thresholds adapt to each stack (quantiles of the activity map, capped
+   at the tuned values 4.5 / 7.0), so dim recordings such as the 55-69-plane dual-channel
+   stacks are not under-segmented; bright 30-plane stacks are unaffected.
+   Stacks above ~5 GB are processed in Z-blocks through a disk memmap in /tmp.
 3. Runs that image the same field of view are detected one by one and then share the union of
    their dendrites, so a dendrite silent in one run is still measured there. Same-FOV runs are
    found from the images themselves (`scape_common.session_fov_groups`, r >= 0.75), not only

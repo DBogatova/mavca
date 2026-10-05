@@ -55,7 +55,7 @@ from Auto.scape_common import (  # noqa: E402
     discover_runs, get_run, Run, open_stack, merge_metrics, VOXEL_ZYX,
 )
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 
 # Parameters. Tuned on 2026-05-08/rbp4_139_phpeb/run5, 2026-05-12/rbp4_132_phpeb/run5,
 # 2026-03-31/rbp4_132_phpeb/run7 only (TRAIN_RUNS); every other run is held out.
@@ -67,8 +67,18 @@ P = dict(
     T_SIGMA=1.0,                 # temporal smoothing (frames)
     SEG_SMOOTH=(0.7, 2.5, 1.2),  # smoothing of z before segmentation (longer along Y = along dendrites)
     TOPK=3,                      # activity map = mean of top-k z per voxel
-    FG_Z=4.5,                    # foreground threshold on activity map
-    SEED_Z=7.0,                  # stop seeding below this activity
+    FG_Z=4.5,                    # foreground threshold on activity map (upper bound; see ADAPTIVE)
+    SEED_Z=7.0,                  # stop seeding below this activity (upper bound)
+    # Adaptive thresholds (added 2026-10-04 after the low-SNR dual-channel Ai162 stacks were
+    # tuned): the activity map has a noise floor ~3 set by the frame count, and on dim stacks
+    # the true dendrites barely clear it (2026-02-09 run1: only 15% of human-mask voxels >
+    # 4.5, 2.5% > 7 -> 18 units for 34 masks). Thresholds are therefore set from the map's
+    # own quantiles: FG = floor + 0.44 (p90 - floor), SEED = floor + 0.30 (p99 - floor),
+    # floor = median, each clipped to [lower, fixed value]. On the brightest 30-plane stacks the
+    # rule returns the fixed values (4.5 / 7.0); 9 of the 20 viral runs do, the others get
+    # slightly lower thresholds (median FG 4.36); dim stacks get much lower ones (FG ~3.2-3.7). GROW_R drops to 0.40 when FG falls below 4.0 (dim stack).
+    ADAPTIVE=True,
+    FG_Z_MIN=3.0, SEED_Z_MIN=4.0, FG_COEF=0.44, SEED_COEF=0.30, GROW_R_DIM=0.40,
     GROW_R=0.45,                 # min corr with the unit's reference trace to join
     MERGE_R=0.85,                # merge nearby units whose traces correlate above this
     MERGE_GAP=2,                 # 'nearby' = within this many voxels
@@ -89,29 +99,73 @@ def log(msg, verbose=True):
 
 
 # --------------------------------------------------------------------------- step 1
+BIG_BYTES = 5e9     # above this (T*Z*Y*X*4) the activity volume is built in Z-blocks on a disk memmap
+SCRATCH = Path("/tmp/scape_auto_scratch")
+
+
+def _scratch(name, shape, dtype):
+    SCRATCH.mkdir(parents=True, exist_ok=True)
+    return np.lib.format.open_memmap(SCRATCH / name, mode="w+", dtype=dtype, shape=shape)
+
+
 def activity_volume(r: Run, verbose=True):
-    """Return z (T,Z,Y,X float16), mean raw image (Z,Y,X float32)."""
+    """Return z (T,Z,Y,X float16; a disk memmap for big stacks), mean raw image (Z,Y,X float32)."""
     t0 = time.time()
     s = open_stack(r)
     sk = int(round(r.skip_s * r.frame_rate))
-    a = np.asarray(s[sk:], dtype=np.float32)          # ~5 GB for 530 frames
-    T, Z, Y, X = a.shape
-    mean = a.mean(0)
+    T0, Z, Y, X = s.shape
+    T = T0 - sk
+    big = T * Z * Y * X * 4 > BIG_BYTES
+    if not big:
+        a = np.asarray(s[sk:], dtype=np.float32)
+        mean = a.mean(0)
+        f0 = np.empty((Z, Y, X), np.float32)
+        for z in range(Z):
+            f0[z] = np.percentile(a[:, z], 10, axis=0)
+        f0 = ndi.gaussian_filter(f0, (0.5, 2, 2)) + 1.0
+        for t in range(T):
+            d = (ndi.gaussian_filter(a[t], P["SMOOTH_SP"]) - f0) / f0
+            a[t] = d - ndi.gaussian_filter(d, P["HP_SIGMA"])
+        ndi.gaussian_filter1d(a, P["T_SIGMA"], axis=0, output=a)
+        med = np.median(a[::2], axis=0)
+        mad = np.median(np.abs(a[::2] - med), axis=0) * 1.4826 + 1e-4
+        z = np.empty((T, Z, Y, X), np.float16)
+        for t in range(T):
+            z[t] = (a[t] - med) / mad
+        del a
+        log(f"[{r.key}] activity volume {z.shape} in {time.time() - t0:.0f}s", verbose)
+        return z, mean
+    # ---- big stack: Z-blocks with margins, result on a disk memmap
+    log(f"[{r.key}] big stack {(T, Z, Y, X)}: Z-block processing to {SCRATCH}", verbose)
+    mean = np.zeros((Z, Y, X), np.float32)
     f0 = np.empty((Z, Y, X), np.float32)
-    for z in range(Z):
-        f0[z] = np.percentile(a[:, z], 10, axis=0)
+    for z0 in range(0, Z, 4):
+        a = np.asarray(s[sk:, z0:z0 + 4], np.float32)
+        mean[z0:z0 + 4] = a.mean(0)
+        f0[z0:z0 + 4] = np.percentile(a, 10, axis=0)
+        del a
     f0 = ndi.gaussian_filter(f0, (0.5, 2, 2)) + 1.0
-    for t in range(T):
-        d = (ndi.gaussian_filter(a[t], P["SMOOTH_SP"]) - f0) / f0
-        a[t] = d - ndi.gaussian_filter(d, P["HP_SIGMA"])
-    ndi.gaussian_filter1d(a, P["T_SIGMA"], axis=0, output=a)
-    med = np.median(a[::2], axis=0)
-    mad = np.median(np.abs(a[::2] - med), axis=0) * 1.4826 + 1e-4
-    z = np.empty((T, Z, Y, X), np.float16)
-    for t in range(T):
-        z[t] = (a[t] - med) / mad
-    del a
-    log(f"[{r.key}] activity volume {z.shape} in {time.time() - t0:.0f}s", verbose)
+    z = _scratch(f"{r.key.replace('/', '_')}_z.npy", (T, Z, Y, X), np.float16)
+    margin = 5                                    # covers HP_SIGMA z=1.5 (3 sigma) + SMOOTH_SP
+    blk = max(2, int(BIG_BYTES // (T * Y * X * 4 * 1.5)) - 2 * margin)
+    for z0 in range(0, Z, blk):
+        z1 = min(Z, z0 + blk)
+        lo, hi = max(0, z0 - margin), min(Z, z1 + margin)
+        a = np.asarray(s[sk:, lo:hi], np.float32)
+        f0b = f0[lo:hi]
+        for t in range(T):
+            d = (ndi.gaussian_filter(a[t], P["SMOOTH_SP"]) - f0b) / f0b
+            a[t] = d - ndi.gaussian_filter(d, P["HP_SIGMA"])
+        ndi.gaussian_filter1d(a, P["T_SIGMA"], axis=0, output=a)
+        core = slice(z0 - lo, z1 - lo)
+        med = np.median(a[::2, core], axis=0)
+        mad = np.median(np.abs(a[::2, core] - med), axis=0) * 1.4826 + 1e-4
+        for t in range(T):
+            z[t, z0:z1] = (a[t, core] - med) / mad
+        del a
+        log(f"[{r.key}]   planes {z0}-{z1} done ({time.time() - t0:.0f}s)", verbose)
+    z.flush()
+    log(f"[{r.key}] activity volume {z.shape} (memmap) in {time.time() - t0:.0f}s", verbose)
     return z, mean
 
 
@@ -121,9 +175,10 @@ def segment(z: np.ndarray, verbose=True, key="", params=None):
     T, Z, Y, X = z.shape
     V = Z * Y * X
     t0 = time.time()
-    zs = np.empty_like(z)
+    big = isinstance(z, np.memmap)
+    zs = _scratch(f"{key.replace('/', '_')}_zs.npy", z.shape, np.float16) if big else np.empty_like(z)
     for t in range(T):
-        zs[t] = ndi.gaussian_filter(z[t].astype(np.float32), p["SEG_SMOOTH"])
+        zs[t] = ndi.gaussian_filter(np.asarray(z[t], np.float32), p["SEG_SMOOTH"])
     flat = zs.reshape(T, V)
     # re-normalise: smoothing shrinks the noise, so express it in robust z again
     for i in range(0, V, 400_000):
@@ -136,10 +191,26 @@ def segment(z: np.ndarray, verbose=True, key="", params=None):
     for i in range(0, V, 400_000):
         blk = flat[:, i:i + 400_000].astype(np.float32)
         top[i:i + 400_000] = np.partition(blk, T - p["TOPK"], axis=0)[-p["TOPK"]:].mean(0)
-    fg = top > p["FG_Z"]
+    fg_z, seed_z, grow_r = p["FG_Z"], p["SEED_Z"], p["GROW_R"]
+    if p["ADAPTIVE"]:
+        floor, p90, p99 = np.percentile(top[::7], [50, 90, 99])
+        fg_z = float(np.clip(floor + p["FG_COEF"] * (p90 - floor), p["FG_Z_MIN"], p["FG_Z"]))
+        seed_z = float(np.clip(floor + p["SEED_COEF"] * (p99 - floor), p["SEED_Z_MIN"], p["SEED_Z"]))
+        if fg_z < 4.0:
+            grow_r = p["GROW_R_DIM"]
+        log(f"[{key}] adaptive thresholds: floor={floor:.2f} p90={p90:.2f} p99={p99:.2f} -> FG={fg_z:.2f} SEED={seed_z:.2f} GROW_R={grow_r}", verbose)
+    fg = top > fg_z
     idx = np.flatnonzero(fg)
     n = idx.size
-    tr = np.clip(flat[:, idx].astype(np.float32), -2, None)
+    if big:   # gather foreground columns chunk-wise (fancy indexing on a memmap is slow)
+        tr = np.empty((T, n), np.float32)
+        for i in range(0, V, 400_000):
+            sel = (idx >= i) & (idx < i + 400_000)
+            if sel.any():
+                tr[:, sel] = flat[:, i:i + 400_000][:, idx[sel] - i]
+        tr = np.clip(tr, -2, None)
+    else:
+        tr = np.clip(flat[:, idx].astype(np.float32), -2, None)
     tr -= tr.mean(0)
     tr /= np.linalg.norm(tr, axis=0) + 1e-6
     pos = np.full(V, -1, np.int64)
@@ -155,7 +226,7 @@ def segment(z: np.ndarray, verbose=True, key="", params=None):
     assigned = np.zeros(n, np.int32)
     units = []
     for s in np.argsort(-topv):
-        if topv[s] < p["SEED_Z"]:
+        if topv[s] < seed_z:
             break
         if assigned[s]:
             continue
@@ -174,7 +245,7 @@ def segment(z: np.ndarray, verbose=True, key="", params=None):
             cand = cand[(~inreg[cand]) & (assigned[cand] == 0)]
             if not cand.size:
                 break
-            new = cand[(ref @ tr[:, cand]) > p["GROW_R"]]
+            new = cand[(ref @ tr[:, cand]) > grow_r]
             inreg[new] = True
             region.extend(new.tolist())
             frontier = new
@@ -250,7 +321,15 @@ def segment(z: np.ndarray, verbose=True, key="", params=None):
         if xspan > p["MIN_SHEET_X_UM"] and xspan > p["MAX_SHEET_RATIO"] * yspan:
             continue
         vid = np.ravel_multi_index((zz, yy, xx), (Z, Y, X))
-        trace = zflat[:, vid].astype(np.float32).mean(1)
+        if big:   # memmap: gather the (sorted) columns in one read per contiguous range
+            vs = np.sort(vid)
+            trace = np.zeros(T, np.float32)
+            cuts = np.flatnonzero(np.diff(vs) > 1) + 1
+            for seg in np.split(vs, cuts):
+                trace += zflat[:, seg[0]:seg[-1] + 1].astype(np.float32).sum(1)
+            trace /= vs.size
+        else:
+            trace = zflat[:, vid].astype(np.float32).mean(1)
         med = np.median(trace)
         trz = (trace - med) / (1.4826 * np.median(np.abs(trace - med)) + 1e-6)
         peak = float(trz.max())
@@ -285,6 +364,8 @@ def segment(z: np.ndarray, verbose=True, key="", params=None):
     for d in info:
         d["n_vox"] = int((out == d["id"]).sum())
     log(f"[{key}] {nid} units after merge/filters ({time.time() - t0:.0f}s)", verbose)
+    for d in info:
+        d.update(fg_z=round(fg_z, 2), seed_z=round(seed_z, 2), grow_r=grow_r)
     return out, top.reshape(Z, Y, X), info
 
 
@@ -350,8 +431,12 @@ def detect_own(r: Run, force=False, cache=None, verbose=True) -> bool:
             zc.mkdir(parents=True, exist_ok=True)
             np.save(zc / "z.npy", z)
             np.save(zc / "mean.npy", mean)
-    lab, top, info = segment(z, verbose, r.key)
-    del z
+    try:
+        lab, top, info = segment(z, verbose, r.key)
+    finally:
+        del z
+        for f in SCRATCH.glob(f"{r.key.replace('/', '_')}_*.npy"):
+            f.unlink(missing_ok=True)
     r.outdir("masks")
     _atomic_tif(lab_p, lab)
     pd.DataFrame(info).to_csv(csv_p, index=False)

@@ -38,6 +38,10 @@ import numpy as np
 
 PROJECT = Path(__file__).resolve().parents[2]
 DATA_ROOT = PROJECT / "scape-data"
+# Additional data roots (external drives). Each may hold <DATE>/<MOUSE>/<RUN> directly or one
+# level deeper (<group>/<DATE>/<MOUSE>/<RUN>, e.g. IMAC/data/rAi162/...). A run present in
+# several roots is taken from the first root that has a raw stack.
+EXTRA_DATA_ROOTS = [Path("/Volumes/IMAC/data")]
 AUTO_ROOT = PROJECT / "scape-auto"
 PYTHON = str(PROJECT / ".venv311" / "bin" / "python")
 VOXEL_ZYX = (3.9, 1.0, 1.2)
@@ -46,6 +50,43 @@ CHANGELOG = PROJECT / "code" / "Auto" / "CHANGELOG_auto.json"
 
 sys.path.insert(0, str(PROJECT / "code" / "Workflow"))
 from mavca_status import SESSION_PARAMS, MASK_SOURCE, DEFAULT_FRAME_RATE, DEFAULT_SKIP_S  # noqa: E402
+
+# Per-session parameters for runs that are NOT in mavca_status.SESSION_PARAMS or whose entry is
+# wrong. frame_rate values marked 'triggers' were measured on 2026-10-04/05 as
+# n_frames / (last - first edge of the acquisition block) of the Andor line in the run's own
+# trigger CSV. The Andor line is not a per-volume signal (~9.9 edges/s whatever the volume
+# rate), so only the first and last edge are used; uncertainty <= 0.2% if the stack holds every
+# acquired frame. They override the 6 Hz note in the steering file for 2025-12-02 (5.0 Hz).
+AUTO_SESSION_PARAMS: dict[tuple[str, str], dict] = {
+    ("2025-12-02", "rbp4cre_136_phpeb"): {"frame_rate": 5.0, "skip_s": 12.0, "source": "triggers (900 fr / 180.08 s; run5 890 fr / 180.15 s = 4.94)"},
+    ("2026-02-09", "rbp4cre_136_phpeb"): {"frame_rate": 6.05, "skip_s": 12.0, "source": "triggers (728 fr / 120.37 s; first 2 s of edges are start-up noise)"},
+    ("2026-02-17", "rbp4cre_138_phpeb"): {"frame_rate": 6.05, "skip_s": 12.0, "source": "triggers (728 fr / 120.4 s)"},
+    ("2025-12-25", "rAi162_phpeb"): {"frame_rate": 4.71, "skip_s": 7.0, "source": "triggers (566 fr / 120.2 s)"},
+    ("2026-02-24", "rAi162_42_phpeb"): {"frame_rate": 5.0, "skip_s": 7.0, "source": "assumed (30 planes, as code/Preprocessing-STEP1/ach_ca_plots.py)"},
+    ("2026-02-26", "rAi162_44_phpeb"): {"frame_rate": 5.0, "skip_s": 7.0, "source": "assumed (30 planes)"},
+}
+# Per-run overrides (frame counts differ within a session: 2025-12-02 run5 holds 890 frames over
+# the same 180.1 s trigger span as run4's 900 -> 4.94 Hz).
+AUTO_RUN_PARAMS: dict[tuple[str, str, str], dict] = {
+    ("2025-12-02", "rbp4cre_136_phpeb", "run5"): {"frame_rate": 4.94, "source": "triggers (890 fr / 180.15 s)"},
+}
+# Sessions deliberately left out: rAi162_15 / rAi162_18 (2025-04 .. 2025-10): frame rate unknown
+# (one run is 10 Hz), 54-88 planes with a different Z step, no behavior; 'organoid' runs.
+EXCLUDE_MICE = {"rAi162_15", "rAi162_18", "organoid", "rAi162"}
+
+# Genotype / labelling. Ai162 = Rbp4-Cre x Ai162 (transgenic GCaMP6s) + AAV-PHP.eB sensor;
+# viral = Rbp4-Cre + AAV-PHP.eB GCaMP7s (femtonics-data/mice.csv). rbp4cre_139_phpeb is listed
+# as viral on the PI's indication that only 136 and 138 are Ai162 - flagged as uncertain.
+GENOTYPE: dict[str, str] = {
+    "rbp4cre_136_phpeb": "Ai162", "rbp4cre_138_phpeb": "Ai162",
+    "rAi162_phpeb": "Ai162", "rAi162_42_phpeb": "Ai162", "rAi162_44_phpeb": "Ai162",
+    "rbp4_132_phpeb": "viral", "rbp4_139_phpeb": "viral", "rbp4cre_139_phpeb": "viral(uncertain)",
+}
+
+
+def genotype(mouse: str) -> str:
+    g = GENOTYPE.get(mouse, "unknown")
+    return "viral" if g.startswith("viral") else g
 
 
 @dataclass
@@ -72,7 +113,11 @@ class Run:
 
     @property
     def src(self) -> Path:
-        return DATA_ROOT / self.date / self.mouse / self.run
+        return Path(self.extra["src"]) if "src" in self.extra else DATA_ROOT / self.date / self.mouse / self.run
+
+    @property
+    def genotype(self) -> str:
+        return genotype(self.mouse)
 
     @property
     def out(self) -> Path:
@@ -93,45 +138,83 @@ class Run:
 
 
 def _first(paths):
-    paths = sorted(paths)
+    paths = sorted(p for p in paths if not p.name.startswith("._"))   # skip macOS AppleDouble sidecars
     return paths[0] if paths else None
 
 
+_RAW_BAD = ("dff", "red", "processed", "mip", "f0", "max_", "crop", "1dendrite", "-3d")
+
+
 def find_raw(src: Path) -> Path | None:
-    """Raw green/bin 4D stack (T,Z,Y,X). Excludes *-dff.tif and red channel."""
-    cands = [p for p in (src / "raw").glob("run*_*-reslice-*.tif")
-             if not p.name.endswith("-dff.tif") and "-red" not in p.name]
-    return _first(cands)
+    """Raw Ca 4D stack (T,Z,Y,X): a tif in raw/ whose name says reslice/green/bin and not
+    red/dff/processed/MIP. Prefers names containing 'green', then 'bin'."""
+    cands = []
+    for p in (src / "raw").glob("*.tif"):
+        n = p.name.lower()
+        if n.startswith("._") or not n.startswith("run") or any(b in n for b in _RAW_BAD):
+            continue
+        if "reslice" in n or "green" in n or "bin" in n:
+            cands.append(p)
+    if not cands:
+        return None
+    cands.sort(key=lambda p: (("green" not in p.name.lower()), ("bin" not in p.name.lower()), p.name))
+    return cands[0]
+
+
+def _run_dirs():
+    """Yield (date, mouse, run, dir) over all data roots; later roots never override a run
+    already found with a raw stack."""
+    seen = {}
+    roots = [DATA_ROOT] + [r for r in EXTRA_DATA_ROOTS if r.exists()]
+    for root in roots:
+        pats = [root.glob("*/*/run*"), root.glob("*/*/*/run*")]
+        for pat in pats:
+            for d in sorted(pat):
+                if not d.is_dir() or not re.match(r"^\d{4}-\d{2}-\d{2}$", d.parts[-3]):
+                    continue
+                date, mouse, run = d.parts[-3], d.parts[-2], d.name
+                if mouse in EXCLUDE_MICE or "-crop" in run:
+                    continue
+                key = (date, mouse, run)
+                raw = find_raw(d)
+                if key in seen and (seen[key][1] is not None or raw is None):
+                    continue
+                seen[key] = (d, raw)
+    for (date, mouse, run), (d, raw) in seen.items():
+        yield date, mouse, run, d, raw
+
+
+_RUNS_CACHE: list | None = None
 
 
 def discover_runs(only_with_raw: bool = True) -> list[Run]:
-    runs = []
-    for d in sorted(DATA_ROOT.glob("*/*/run*")):
-        if not d.is_dir():
-            continue
-        date, mouse, run = d.parts[-3], d.parts[-2], d.name
-        raw = find_raw(d)
-        if only_with_raw and raw is None:
-            continue
-        p = SESSION_PARAMS.get((date, mouse))
-        ms = MASK_SOURCE.get((date, mouse, run))
-        hdir = (d.parent / ms if ms else d) / "labelmaps_curated_dynamic"
-        tr = d / "traces" / "dff_traces_curated_bgsub.csv"
-        runs.append(Run(
-            date=date, mouse=mouse, run=run, raw=raw,
-            frame_rate=float(p["frame_rate"]) if p else DEFAULT_FRAME_RATE,
-            skip_s=float(p["skip_s"]) if p else DEFAULT_SKIP_S,
-            has_ach=bool(p.get("has_ach", False)) if p else False,
-            mask_source=ms,
-            human_mask_dir=hdir if any(hdir.glob("dend_*_labelmap.tif")) else None,
-            human_traces=tr if tr.exists() else None,
-            behavior_mat=_first((d / "behavior").glob("*_behavior.mat")),
-            accel_csv=_first((d / "trigger").glob("Run*_t1_accel.csv")),
-            trigger_csv=_first((d / "trigger").glob("Run*_t1_trigger.csv")),
-            known_params=p is not None,
-        ))
-    runs.sort(key=lambda r: (r.date, r.mouse, int(re.sub(r"\D", "", r.run) or 0)))
-    return runs
+    global _RUNS_CACHE
+    if _RUNS_CACHE is None:
+        runs = []
+        for date, mouse, run, d, raw in _run_dirs():
+            p = AUTO_SESSION_PARAMS.get((date, mouse)) or SESSION_PARAMS.get((date, mouse))
+            if (date, mouse, run) in AUTO_RUN_PARAMS:
+                p = dict(p or {}, **AUTO_RUN_PARAMS[(date, mouse, run)])
+            ms = MASK_SOURCE.get((date, mouse, run))
+            hdir = (d.parent / ms if ms else d) / "labelmaps_curated_dynamic"
+            tr = d / "traces" / "dff_traces_curated_bgsub.csv"
+            runs.append(Run(
+                date=date, mouse=mouse, run=run, raw=raw,
+                frame_rate=float(p["frame_rate"]) if p else DEFAULT_FRAME_RATE,
+                skip_s=float(p["skip_s"]) if p else DEFAULT_SKIP_S,
+                has_ach=bool(p.get("has_ach", False)) if p else any((d / "raw").glob("*red*.tif")),
+                mask_source=ms,
+                human_mask_dir=hdir if any(hdir.glob("dend_*_labelmap.tif")) else None,
+                human_traces=tr if tr.exists() else None,
+                behavior_mat=_first((d / "behavior").glob("*_behavior.mat")),
+                accel_csv=_first((d / "trigger").glob("Run*_t1_accel.csv")),
+                trigger_csv=_first((d / "trigger").glob("Run*_t1_trigger.csv")),
+                known_params=p is not None,
+                extra={"src": str(d), "root": str(d.parents[2]), "rate_source": (p or {}).get("source", "mavca_status")},
+            ))
+        runs.sort(key=lambda r: (r.date, r.mouse, int(re.sub(r"\D", "", r.run) or 0)))
+        _RUNS_CACHE = runs
+    return [r for r in _RUNS_CACHE if r.raw is not None] if only_with_raw else list(_RUNS_CACHE)
 
 
 def get_run(key: str) -> Run:
@@ -281,7 +364,7 @@ def human_mask_home(r: Run) -> str | None:
         return None
     cache = AUTO_ROOT / "human_mask_check.json"
     d = json.loads(cache.read_text()) if cache.exists() else {}
-    k = str(r.human_mask_dir.relative_to(DATA_ROOT))
+    k = str(r.human_mask_dir)
     if k not in d:
         runs = [x for x in discover_runs() if x.date == r.date and x.mouse == r.mouse]
         shape = open_stack(r).shape[1:]
@@ -324,12 +407,16 @@ def human_masks(r: Run, shape_zyx: tuple[int, int, int] | None = None) -> list[t
     if r.human_mask_dir is None:
         return out
     for p in sorted(r.human_mask_dir.glob("dend_*_labelmap.tif")):
+        if p.name.startswith("._"):
+            continue
         m = tifffile.imread(str(p)) > 0
         if shape_zyx is not None and m.shape != tuple(shape_zyx):
             dz, dy, dx = (s - t for s, t in zip(shape_zyx, m.shape))
             if dz != 0 or dx != 0 or not (0 <= dy <= HUMAN_Y_CROP):
                 raise ValueError(f"{p}: mask {m.shape} vs stack {shape_zyx} not a deep-Y crop")
             m = np.pad(m, ((0, 0), (0, dy), (0, 0)))
+        if not m.any():          # empty labelmap file (deleted dendrite left as zeros)
+            continue
         out.append((p.stem.replace("_labelmap", ""), m))
     return out
 
@@ -342,17 +429,78 @@ def human_labelmap(r: Run, shape_zyx) -> np.ndarray:
 
 
 # --------------------------------------------------------------------------- behavior
+def _edges(x, thr=0.5):
+    b = np.asarray(x) > thr
+    return np.flatnonzero(b[1:] & ~b[:-1]) + 1
+
+
+def imaging_window(r: Run) -> tuple[float, float] | None:
+    """(start, end) in recording seconds of the imaging acquisition: the longest block of Andor
+    trigger edges separated by gaps < 1 s (2026-02-09 run1 has 2 s of start-up noise on the
+    line followed by 9 s of silence before the real acquisition)."""
+    import pandas as pd
+    if r.trigger_csv is None:
+        return None
+    trig = pd.read_csv(r.trigger_csv)
+    acol = next((c for c in trig.columns if "ndor" in c), None)
+    if acol is None:
+        return None
+    t = trig["time_s"].to_numpy()[_edges(trig[acol].to_numpy())]
+    if t.size == 0:
+        return None
+    cuts = np.flatnonzero(np.diff(t) > 1.0)
+    blocks = np.split(t, cuts + 1)
+    b = max(blocks, key=lambda x: x[-1] - x[0])
+    return float(b[0]), float(b[-1])
+
+
+def camera_start(r: Run) -> float | None:
+    """First Basler exposure in recording seconds: from the trigger CSV when it has a Basler
+    column, else from the DAQ .mat (v7.3, h5py) next to it; None if neither exists."""
+    import pandas as pd
+    if r.trigger_csv is None:
+        return None
+    trig = pd.read_csv(r.trigger_csv, nrows=5)
+    bcol = next((c for c in trig.columns if "asler" in c), None)
+    if bcol is not None:
+        trig = pd.read_csv(r.trigger_csv, usecols=["time_s", bcol])
+        e = _edges(trig[bcol].to_numpy())
+        return float(trig["time_s"].to_numpy()[e[0]]) if e.size else None
+    mat = r.trigger_csv.with_name(r.trigger_csv.name.replace("_trigger.csv", ".mat"))
+    if not mat.exists():
+        return None
+    try:
+        import h5py
+        with h5py.File(mat) as h:
+            def st(ref):
+                return "".join(chr(c) for c in h[ref][()].ravel())
+            rate = float(h["device/rate"][()].ravel()[0])
+            for grp in h["#refs#"].values():
+                if isinstance(grp, h5py.Group) and "varNames" in grp and "data" in grp:
+                    names = [st(x) for x in grp["varNames"][()].ravel()]
+                    if "baslerExposureTrigger" in names:
+                        col = h[grp["data"][()].ravel()[names.index("baslerExposureTrigger")]][()].ravel()
+                        e = _edges(col)
+                        return float(e[0] / rate) if e.size else None
+    except Exception:
+        return None
+    return None
+
+
 def load_behavior(r: Run, crop_s: float | None = None) -> dict:
     """Pupil, whisker (10 Hz camera) and accelerometer (1 kHz), all on the imaging clock.
 
-    Ported from code/Behavior-Analysis/behavior_plots.py:
-      * camera->imaging offset = -settings.aligned_time_s[0] from the run's .mat if present,
-        else (AndorXyla first rise - basler first rise) from the run's OWN trigger CSV.
-      * accel uses aligned_time_s (already imaging-referenced), |accel_mag|, gaussian sigma=10.
-      * pupil sigma=2, whisker (whisker_smooth_long) sigma=3.
+    Ported from code/Behavior-Analysis/behavior_plots.py and generalised to the older trigger
+    format:
+      * imaging start = first edge of the main Andor block (imaging_window); camera start =
+        first Basler exposure (camera_start). camera->imaging offset = imaging start - camera
+        start; preferred source is settings.aligned_time_s in the run's .mat when present.
+      * accel: aligned_time_s when present and consistent with the imaging window, else time_s
+        minus imaging start. Magnitude = |acc - median(acc)| over the three axes (the old
+        'accMag' column includes gravity and is not used). Gaussian sigma = 10 samples.
+      * pupil sigma = 2, whisker (whisker_smooth_long) sigma = 3.
     Returned times are seconds since imaging frame 0 minus crop_s (default r.skip_s), so they
-    share an axis with Ca time = frame/frame_rate - crop_s.
-    Each entry is None when the source is missing.
+    share an axis with Ca time = frame / frame_rate - crop_s. Missing sources give None.
     """
     import pandas as pd
     from scipy.io import loadmat
@@ -360,7 +508,10 @@ def load_behavior(r: Run, crop_s: float | None = None) -> dict:
 
     crop = r.skip_s if crop_s is None else crop_s
     out = {"pupil_t": None, "pupil": None, "whisker_t": None, "whisker": None,
-           "accel_t": None, "accel": None, "offset_s": None, "offset_source": None}
+           "accel_t": None, "accel": None, "offset_s": None, "offset_source": None, "imaging_start_s": None}
+    win = imaging_window(r)
+    img0 = win[0] if win else None
+    out["imaging_start_s"] = img0
 
     if r.behavior_mat is not None:
         m = loadmat(str(r.behavior_mat))
@@ -373,12 +524,12 @@ def load_behavior(r: Run, crop_s: float | None = None) -> dict:
                 offset, src = float(-at[0]), "mat.settings.aligned_time_s"
         except Exception:
             pass
-        if offset is None and r.trigger_csv is not None:
-            trig = pd.read_csv(r.trigger_csv, usecols=["time_s", "baslerExposureTrigger", "AndorXylaTrigger"])
-            b = trig.loc[trig["baslerExposureTrigger"].diff() == 1, "time_s"]
-            a = trig.loc[trig["AndorXylaTrigger"].diff() == 1, "time_s"]
-            if len(a) and len(b):
-                offset, src = float(a.iloc[0] - b.iloc[0]), f"trigger:{r.trigger_csv.name}"
+        if offset is None and img0 is not None:
+            cam0 = camera_start(r)
+            if cam0 is not None:
+                offset, src = img0 - cam0, f"trigger: imaging block start {img0:.3f} s - camera start {cam0:.3f} s"
+            else:
+                offset, src = img0, f"trigger: imaging block start {img0:.3f} s (camera start unknown, assumed 0)"
         if offset is None:
             offset, src = 0.0, "none(assumed 0)"
         tp = np.arange(pupil.size) / 10.0 - offset - crop
@@ -388,9 +539,18 @@ def load_behavior(r: Run, crop_s: float | None = None) -> dict:
                    offset_s=offset, offset_source=src)
 
     if r.accel_csv is not None:
-        df = pd.read_csv(r.accel_csv, usecols=lambda c: c in ("accel_mag", "aligned_time_s"))
-        t = df["aligned_time_s"].to_numpy() - crop
-        a = gaussian_filter1d(np.abs(df["accel_mag"].to_numpy()), 10)
+        df = pd.read_csv(r.accel_csv)
+        axes = [c for c in ("accX", "accY", "accZ") if c in df]
+        if len(axes) == 3:
+            A = df[axes].to_numpy(float)
+            mag = np.linalg.norm(A - np.median(A, 0), axis=1)
+        else:
+            mag = np.abs(df["accel_mag"].to_numpy(float))
+        if "aligned_time_s" in df and (img0 is None or abs(float(df["time_s"].to_numpy()[np.argmin(np.abs(df["aligned_time_s"].to_numpy()))]) - img0) < 0.5):
+            t = df["aligned_time_s"].to_numpy() - crop
+        else:
+            t = df["time_s"].to_numpy() - (img0 or 0.0) - crop
+        a = gaussian_filter1d(mag, 10)
         k = t >= 0
         out.update(accel_t=t[k], accel=a[k])
     return out
@@ -427,6 +587,6 @@ def _json_default(o):
 
 if __name__ == "__main__":
     for r in discover_runs():
-        print(f"{r.key:42s} fr={r.frame_rate} skip={r.skip_s} src={r.mask_source or '-':5s} "
+        print(f"{r.key:42s} {r.genotype:6s} fr={r.frame_rate} skip={r.skip_s} src={r.mask_source or '-':5s} "
               f"human={'Y' if r.human_mask_dir else '-'} tr={'Y' if r.human_traces else '-'} "
               f"beh={'Y' if r.behavior_mat else '-'} acc={'Y' if r.accel_csv else '-'}")

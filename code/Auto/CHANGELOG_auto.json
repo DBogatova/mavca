@@ -1,7 +1,7 @@
 {
   "name": "apical-dendrites-2025 automatic SCAPE pipeline (code/Auto/)",
   "started": "2026-10-03T23:06-04:00",
-  "last_update": "2026-10-04T17:20-04:00",
+  "last_update": "2026-10-05T05:10-04:00",
   "modeled_on": "/Users/daria/Desktop/femtonics-data/code/STEP7_workflow (panel, status, combo figure, movies) and code/STEP9_auto (automatic mirror tree, runner, paper stats)",
   "rules": [
     "scape-data/ is only read. Every output goes to scape-auto/<DATE>/<MOUSE>/<RUN>/ (gitignored). Verified at the end: `find scape-data -newer code/Auto/CHANGELOG_auto.json` prints nothing.",
@@ -182,6 +182,36 @@
         "Population coupling: a dendrite is predicted from the others with held-out R2 0.21 (auto) / 0.30 (human); 19% effectively independent (R2<0.02), 52-56% strongly coupled (>0.2); far-only (>50 um) R2 0.19, so it is a shared network signal, not optical crosstalk; behavior and global Ca add ~0 unique variance beyond the population.",
         "Choristers: population coupling rises with behavior coupling (rho +0.28), event rate, size, and falls with depth (LMM p<1e-60); hubs of the sparse partial-correlation network are superficial (67 vs 92 um); 92% of partial correlations are exactly zero.",
         "No small number of shared inputs explains the dependence: k* > 20 factors in every FOV; first factor global (tracks global Ca r=0.61), second a depth gradient, third spatially clustered; 72%/49% of variance stays private after 20 factors."
+      ]
+    },
+    {
+      "time": "2026-10-04T22:00 - 2026-10-05T05:10-04:00",
+      "what": "External drive runs + Ai162 vs viral comparison. scape_common: multi-root discovery (EXTRA_DATA_ROOTS=/Volumes/IMAC/data, AppleDouble sidecars skipped, flexible raw-name matching), AUTO_SESSION_PARAMS / AUTO_RUN_PARAMS (frame rates measured from the Andor trigger span: 2025-12-02 run4 5.0 Hz, run5 4.94, 2026-02-09 6.05 (first 2 s of edges are start-up noise), 2026-02-17 6.05, 2025-12-25 4.71; 2026-02-24/26 assumed 5.0, no trigger files), GENOTYPE table (Ai162: rbp4cre_136, rbp4cre_138, rAi162_phpeb, rAi162_42, rAi162_44; viral: rbp4_132, rbp4_139, rbp4cre_139 uncertain), imaging_window()/camera_start() (longest Andor edge block; Basler start from the trigger CSV or the DAQ .mat via h5py), old trigger format supported, accelerometer magnitude rebuilt from the three axes minus median (the old accMag column included gravity). auto_detect v2.1.0: Z-block memmap path for stacks > 5 GB (55-69 planes), adaptive FG/SEED thresholds from the activity-map quantiles (dim dual-channel stacks were under-segmented: 2026-02-09 run1 18 -> 59 units), per-unit thresholds recorded. extract_traces/global_ca: time_s = Frame/fr - skip_s exactly. Excluded: rAi162_15/_18 (2025-04..10; unknown rate and Z step) and organoid runs. Full re-run of all 29 runs (29/29 every stage), all statistics regenerated, compare_genotype.py + make_genotype_figure.py + genotype_v2_tables.py added, REPORT_independence.md v2 and FIGURE_independence/FIGURE_genotype regenerated. Two review agents (code review before the re-run: 3 high issues found and fixed; audit after: NEEDS_CHANGES on 3 medium items, see below).",
+      "files": [
+        "code/Auto/scape_common.py",
+        "code/Auto/auto_detect.py",
+        "code/Auto/extract_traces.py",
+        "code/Auto/global_ca.py",
+        "code/Auto/compare_genotype.py",
+        "code/Auto/make_genotype_figure.py",
+        "code/Auto/genotype_v2_tables.py",
+        "code/Auto/tune_ai162_detect.py",
+        "code/Auto/make_independence_figure.py",
+        "code/Auto/README.md",
+        "code/Auto/notes/review_external_runs.json",
+        "code/Auto/notes/auditor_v2.json"
+      ],
+      "cohort": "29 runs, 18 FOVs, 8 mice (5 Ai162 / 3 viral); behavior in 23 runs / 13 FOVs / 5 mice.",
+      "results": {
+        "independence_v2": "All conclusions of the 20-run cohort hold on 29 runs and within each genotype separately: >=10% co-active in 5.8% of frames vs 0% expected, silent frames 30% vs 2%, co-activity Fano 8.6 vs 1 (18 FOVs, p=7.6e-6); population-coupling held-out R2 0.21 (far-only 0.18); 36% same-frame onsets vs 10%; k* > 20 shared factors; ~19% of dendrites effectively independent; ~73% of variance private.",
+        "ai162_vs_viral": "No biological metric differs after FDR (252 tests at FOV level; mouse-level Mann-Whitney 5 vs 3 mice cannot go below p=0.036, 9/252 reach it = chance). Nominal only: lower trace SNR (9.8 vs 14.3), fewer dendrites per run (149 vs 234), lower population R2 (0.16 vs 0.22; disappears with human masks 0.30 vs 0.30). Survive FDR: run duration (acquisition) and human-mask depth (FOV placement). Confounds that move the Ai162 group as a block: GCaMP6s vs 7s kinetics, dual-channel SNR, 29-69 planes, frame rates, detector yield on dim stacks.",
+        "validation_ai162": "median functional recall 0.50, best trace r 0.75; 2026-02-09 run1 stays hard (recall 0.21, coverage 8%: dim 69-plane dual-channel stack)."
+      },
+      "open_items_from_audit": [
+        "M2: the 2025-12-25 rAi162_phpeb FOV (308 units, 120 from run2 detected at the floor thresholds FG 3.2) contains non-dendritic units (diffuse background, deep-plane blobs; dendrite_like 51%; reliability 0.22). A per-unit quality filter (e.g. minimum peak SNR / split-half reliability, or FG_Z_MIN 3.3) is the right fix; not applied tonight because it changes params_hash and needs a 2.5 h re-detection. Genotype conclusions are null with or without this FOV.",
+        "M3: Z voxel size (3.9 um) is assumed for the 42-69-plane stacks; TIFFs carry no spacing metadata. Distance-based metrics on those runs depend on it - confirm the Z step for the deep dual-channel sessions.",
+        "L: movies predate the final traces for the new runs (cosmetic); stats/skeptic, stats/pupil_phase, stats/explore_hemodynamics were not regenerated (older cohort).",
+        "Fixed after the audit: 2025-12-02 run5 frame rate 4.94 Hz (per-run override), global_ca.csv time axis identical to dff_auto.csv, comment/wording fixes."
       ]
     }
   ],

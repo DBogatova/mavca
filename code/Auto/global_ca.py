@@ -37,7 +37,7 @@ def compute_global_ca(r) -> dict:
     
     stack = open_stack(r)
     T, Z, Y, X = stack.shape
-    skip_frames = int(r.skip_s * r.frame_rate)
+    skip_frames = int(round(r.skip_s * r.frame_rate))
     
     # Live voxels (>5th pct of temporal mean)
     sample = np.asarray(stack[:min(100, T)]).astype(np.float32)
@@ -70,7 +70,7 @@ def compute_global_ca(r) -> dict:
     # Crop to after skip_s
     global_dff = global_dff[skip_frames:]
     T_out = len(global_dff)
-    time_s = np.arange(T_out) / r.frame_rate
+    time_s = np.arange(skip_frames, skip_frames + T_out) / r.frame_rate - r.skip_s   # same clock as dff_auto.csv
     
     # Save
     out_dir = r.outdir("traces")

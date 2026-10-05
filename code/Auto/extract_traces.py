@@ -87,7 +87,7 @@ def extract_traces(stack, masks: list[tuple[str, np.ndarray]],
                    verbose: bool = True) -> pd.DataFrame:
     """Extract dF/F traces for all masks using core-shell background subtraction."""
     T, Z, Y, X = stack.shape
-    skip_frames = int(skip_s * frame_rate)
+    skip_frames = int(round(skip_s * frame_rate))
     n_out_frames = T - skip_frames
     
     if n_out_frames <= 0:
@@ -169,7 +169,9 @@ def extract_traces(stack, masks: list[tuple[str, np.ndarray]],
         traces[name] = gaussian_filter1d(traces[name], sigma=SMOOTH_SIGMA)
     
     # Build DataFrame
-    cols = {"Frame": np.arange(skip_frames, T), "time_s": (np.arange(n_out_frames) / frame_rate)}
+    # time_s = 0 exactly skip_s after frame 0 (behavior is shifted by the same skip_s), so the
+    # trace clock and the behavior clock agree to the sub-frame level
+    cols = {"Frame": np.arange(skip_frames, T), "time_s": (np.arange(skip_frames, T) / frame_rate - skip_s)}
     cols.update({name: traces[name] for name in sorted(traces.keys())})
     df = pd.DataFrame(cols)
     
